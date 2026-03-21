@@ -42,9 +42,7 @@ RATE_LIMIT_WINDOWS = {
     "gemini": {"max_requests": 10, "window_seconds": 60},
     "opencode": {"max_requests": 60, "window_seconds": 60},
 }
-PROVIDER_COOLDOWN_SECONDS = int(
-    os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(12 * 60 * 60))
-)
+PROVIDER_COOLDOWN_SECONDS = int(os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(60)))
 _provider_request_times: dict[str, deque[float]] = {
     provider: deque() for provider in RATE_LIMIT_WINDOWS
 }
@@ -460,7 +458,7 @@ def load_llm_config(
         else _optional_int(os.getenv("LLM_MAX_TOKENS")),
         timeout=timeout
         if timeout is not None
-        else float(os.getenv("LLM_TIMEOUT", "120")),
+        else float(os.getenv("LLM_TIMEOUT", "300")),
         max_prompt_tokens=max_prompt_tokens
         if max_prompt_tokens is not None
         else _optional_int(os.getenv("LLM_MAX_PROMPT_TOKENS")),
