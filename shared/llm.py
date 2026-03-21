@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, APIStatusError, OpenAI, RateLimitError
 
 
 def _env_flag(name: str, default: str = "false") -> bool:
@@ -23,6 +23,9 @@ class LLMConfig:
     temperature: float
     max_tokens: Optional[int]
     timeout: float
+
+
+FALLBACK_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 
 
 def _normalize_provider(value: Optional[str]) -> str:
@@ -63,6 +66,7 @@ def _default_base_url(provider: str) -> Optional[str]:
         "openai": os.getenv("OPENAI_BASE_URL"),
         "opencode": "https://opencode.ai/zen/v1",
         "openrouter": "https://openrouter.ai/api/v1",
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "ollama": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
     }
     return defaults.get(provider, os.getenv("LLM_BASE_URL"))
@@ -73,10 +77,138 @@ def _default_api_key(provider: str) -> Optional[str]:
         "openai": "OPENAI_API_KEY",
         "opencode": "OPENCODE_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
+        "gemini": "GEMINI_API_KEY",
         "ollama": "OLLAMA_API_KEY",
     }
     env_name = env_by_provider.get(provider, "LLM_API_KEY")
+    if provider == "ollama":
+        return os.getenv("OLLAMA_API_KEY") or os.getenv("OLLANA_API_KEY") or os.getenv("LLM_API_KEY")
     return os.getenv(env_name) or os.getenv("LLM_API_KEY")
+
+
+def _default_model_for_provider(provider: str) -> str:
+    defaults = {
+        "openai": os.getenv("OPENAI_MODEL", "gpt-4.1"),
+        "opencode": os.getenv("OPENCODE_MODEL", "opencode/bigpickle"),
+        "openrouter": os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
+        "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "ollama": os.getenv("OLLAMA_MODEL") or os.getenv("OLLANA_MODEL") or "llama3.2",
+    }
+    return defaults.get(provider, os.getenv("LLM_MODEL", "gpt-4.1"))
+
+
+def _explicit_fallback_chain() -> list[str]:
+    raw = os.getenv("LLM_FALLBACK_ORDER", "")
+    if not raw.strip():
+        return []
+    return [_normalize_provider(item) for item in raw.split(",") if item.strip()]
+
+
+def _provider_has_credentials(provider: str) -> bool:
+    if provider == "ollama":
+        return bool(os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_MODEL") or os.getenv("OLLANA_API_KEY") or os.getenv("OLLAMA_API_KEY"))
+    return bool(_default_api_key(provider))
+
+
+def _build_fallback_chain(primary_provider: str) -> list[str]:
+    configured = _explicit_fallback_chain()
+    if configured:
+        ordered = [primary_provider, *configured]
+    else:
+        ordered = [primary_provider, "gemini", "openai", "ollama"]
+
+    deduped: list[str] = []
+    for provider in ordered:
+        normalized = _normalize_provider(provider)
+        if normalized in deduped:
+            continue
+        if normalized != primary_provider and not _provider_has_credentials(normalized):
+            continue
+        deduped.append(normalized)
+    return deduped
+
+
+def _config_for_provider(
+    provider: str,
+    *,
+    model: Optional[str],
+    api_key: Optional[str],
+    base_url: Optional[str],
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    timeout: Optional[float],
+) -> LLMConfig:
+    requested_model = model
+    if requested_model and "/" in requested_model:
+        requested_provider = _normalize_provider(requested_model.split("/", 1)[0])
+        if requested_provider != provider:
+            requested_model = None
+
+    return load_llm_config(
+        model=requested_model or _default_model_for_provider(provider),
+        provider=provider,
+        api_key=api_key if provider == _infer_provider_from_model(model, provider) else None,
+        base_url=base_url if provider == _infer_provider_from_model(model, provider) else None,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        return exc.status_code in FALLBACK_STATUS_CODES
+    return False
+
+
+def _request_with_fallback(
+    *,
+    messages: list[dict[str, str]],
+    model: Optional[str],
+    provider: Optional[str],
+    api_key: Optional[str],
+    base_url: Optional[str],
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    timeout: Optional[float],
+) -> str:
+    primary_provider = _infer_provider_from_model(model, provider)
+    fallback_chain = _build_fallback_chain(primary_provider)
+    last_error: Exception | None = None
+
+    for fallback_provider in fallback_chain:
+        config = _config_for_provider(
+            fallback_provider,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        client = _create_client(config)
+        request_kwargs = {
+            "model": config.model,
+            "messages": messages,
+            "temperature": config.temperature,
+        }
+        if config.max_tokens is not None:
+            request_kwargs["max_tokens"] = config.max_tokens
+
+        try:
+            completion = client.chat.completions.create(**request_kwargs)
+            return _extract_text_from_completion(completion)
+        except Exception as exc:
+            last_error = exc
+            if not _is_retryable_llm_error(exc):
+                raise
+            continue
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("No LLM providers were available for the request")
 
 
 def load_llm_config(
@@ -89,7 +221,7 @@ def load_llm_config(
     timeout: Optional[float] = None,
 ) -> LLMConfig:
     resolved_provider = _infer_provider_from_model(model, provider)
-    configured_model = model or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4.1"
+    configured_model = model or os.getenv("LLM_MODEL") or _default_model_for_provider(resolved_provider)
     resolved_model = _normalize_model_name(resolved_provider, configured_model)
 
     return LLMConfig(
@@ -331,18 +463,16 @@ def call_llm(
         max_tokens=max_tokens,
         timeout=timeout,
     )
-    client = _create_client(config)
-
-    request_kwargs = {
-        "model": config.model,
-        "messages": _build_messages(system_prompt, user_prompt),
-        "temperature": config.temperature,
-    }
-    if config.max_tokens is not None:
-        request_kwargs["max_tokens"] = config.max_tokens
-
-    completion = client.chat.completions.create(**request_kwargs)
-    return _extract_text_from_completion(completion)
+    return _request_with_fallback(
+        messages=_build_messages(system_prompt, user_prompt),
+        model=config.model if model is None else model,
+        provider=config.provider if provider is None else provider,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature if temperature is not None else config.temperature,
+        max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+        timeout=timeout if timeout is not None else config.timeout,
+    )
 
 
 def call_llm_with_messages(
@@ -369,15 +499,13 @@ def call_llm_with_messages(
         max_tokens=max_tokens,
         timeout=timeout,
     )
-    client = _create_client(config)
-
-    request_kwargs = {
-        "model": config.model,
-        "messages": list(messages),
-        "temperature": config.temperature,
-    }
-    if config.max_tokens is not None:
-        request_kwargs["max_tokens"] = config.max_tokens
-
-    completion = client.chat.completions.create(**request_kwargs)
-    return _extract_text_from_completion(completion)
+    return _request_with_fallback(
+        messages=list(messages),
+        model=config.model if model is None else model,
+        provider=config.provider if provider is None else provider,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature if temperature is not None else config.temperature,
+        max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
+        timeout=timeout if timeout is not None else config.timeout,
+    )

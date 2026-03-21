@@ -15,5 +15,10 @@ Constraints:
 - Prefer simple, maintainable, production-ready solutions
 - Add brief comments only where the logic is non-obvious
 - If the task involves ML or AI, include the essential code needed to train, evaluate, or run the model
+- Keep all project code in the GitHub project
+- Before starting implementation, create a working branch from `main`
+- Do all task work in that branch until the task is ready for QA
+- After each successfully completed task, commit the task changes to the working branch
+- Assume merge to `main` happens only after QA has validated the branch
 
 Output code only unless the task explicitly asks for another format.

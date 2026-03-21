@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import subprocess
 import time
 import uuid
@@ -31,6 +32,7 @@ DEV_SYSTEM_PROMPT = load_prompt("dev", "system")
 DEV_USER_PROMPT = load_prompt("dev", "user")
 PM_SYSTEM_PROMPT = load_prompt("pm", "system")
 PM_USER_PROMPT = load_prompt("pm", "user")
+MAX_SELF_HEALING_ATTEMPTS = int(os.getenv("DEV_QA_MAX_FIX_ATTEMPTS", "2"))
 
 
 def _ensure_task_list(output: str) -> List[Dict[str, Any]]:
@@ -43,6 +45,128 @@ def _ensure_task_list(output: str) -> List[Dict[str, Any]]:
         return parsed
 
     return [{"task_id": str(uuid.uuid4()), "description": output}]
+
+
+def _build_dev_prompt(
+    task: Dict[str, Any],
+    description: str,
+    attempt_number: int,
+    qa_feedback: Dict[str, Any] | None = None,
+) -> str:
+    qa_feedback_text = "No QA feedback yet. Produce the initial implementation."
+    if qa_feedback:
+        qa_feedback_text = json.dumps(qa_feedback, indent=2, ensure_ascii=True)
+
+    return render_prompt(
+        DEV_USER_PROMPT,
+        task_description=description,
+        task_context=json.dumps(task, indent=2, ensure_ascii=True),
+        attempt_number=attempt_number,
+        qa_feedback=qa_feedback_text,
+    )
+
+
+def _generate_dev_artifact(
+    task: Dict[str, Any],
+    task_id: str,
+    description: str,
+    attempt_number: int,
+    qa_feedback: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    code = call_llm(
+        DEV_SYSTEM_PROMPT,
+        _build_dev_prompt(task, description, attempt_number, qa_feedback),
+    )
+
+    workspace = Path("/workspace")
+    workspace.mkdir(exist_ok=True)
+    file_path = workspace / f"{task_id}.py"
+    file_path.write_text(code)
+
+    return {
+        "task_id": task_id,
+        "status": "success",
+        "artifact": str(file_path),
+        "code": code,
+        "attempt": attempt_number,
+        "mode": "autofix" if qa_feedback else "initial",
+    }
+
+
+def _summarize_qa_result(task_description: str, qa_logs: str, status: str) -> Dict[str, Any]:
+    qa_summary_raw = call_llm(
+        QA_SYSTEM_PROMPT,
+        render_prompt(
+            QA_USER_PROMPT,
+            test_logs=qa_logs,
+            task_description=task_description,
+        ),
+    )
+    try:
+        qa_summary = json.loads(qa_summary_raw)
+    except json.JSONDecodeError:
+        qa_summary = {
+            "status": status,
+            "failing_tests": [],
+            "error_summary": qa_summary_raw,
+            "root_cause": "",
+            "fix_suggestion": "",
+            "coverage_assessment": {
+                "unit_tests": "unknown",
+                "integration_tests": "unknown",
+                "end_to_end_tests": "unknown",
+            },
+            "quality_assessment": {
+                "confidence": "low",
+                "notes": "QA summary was not valid JSON.",
+            },
+        }
+    return qa_summary
+
+
+def _run_qa_for_artifact(
+    task_id: str, description: str, artifact: str | None
+) -> Dict[str, Any]:
+    artifact_path = Path(artifact) if artifact else None
+    if not artifact or not artifact_path or not artifact_path.exists():
+        return {
+            "task_id": task_id,
+            "status": "skipped",
+            "logs": "No artifact found",
+            "summary": {
+                "status": "fail",
+                "failing_tests": [],
+                "error_summary": "No artifact found",
+                "root_cause": "Developer artifact was missing before QA execution.",
+                "fix_suggestion": "Ensure dev stage writes the target artifact before QA runs.",
+                "coverage_assessment": {
+                    "unit_tests": "unknown",
+                    "integration_tests": "unknown",
+                    "end_to_end_tests": "unknown",
+                },
+                "quality_assessment": {
+                    "confidence": "high",
+                    "notes": "QA could not execute because the artifact path was missing.",
+                },
+            },
+        }
+
+    workspace = Path("/workspace")
+    result = subprocess.run(
+        ["python", "-m", "pytest", str(workspace), "-v"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    qa_logs = result.stdout + result.stderr
+    status = "success" if result.returncode == 0 else "fail"
+
+    return {
+        "task_id": task_id,
+        "status": status,
+        "logs": qa_logs,
+        "summary": _summarize_qa_result(description, qa_logs, status),
+    }
 
 
 @activity.defn
@@ -140,26 +264,13 @@ async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
 
-    code = call_llm(
-        DEV_SYSTEM_PROMPT,
-        render_prompt(
-            DEV_USER_PROMPT,
-            task_description=description,
-            task_context=task,
-        ),
+    return _generate_dev_artifact(
+        task=task,
+        task_id=task_id,
+        description=description,
+        attempt_number=int(task.get("attempt_number", 1)),
+        qa_feedback=task.get("qa_feedback"),
     )
-
-    workspace = Path("/workspace")
-    workspace.mkdir(exist_ok=True)
-    file_path = workspace / f"{task_id}.py"
-    file_path.write_text(code)
-
-    return {
-        "task_id": task_id,
-        "status": "success",
-        "artifact": str(file_path),
-        "code": code,
-    }
 
 
 @activity.defn
@@ -173,25 +284,7 @@ async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         files = list(workspace.glob("*.py"))
         artifact = str(files[0]) if files else None
 
-    if not artifact or not Path(artifact).exists():
-        return {
-            "task_id": task_id,
-            "status": "skipped",
-            "logs": "No artifact found",
-        }
-
-    result = subprocess.run(
-        ["python", "-m", "pytest", str(workspace), "-v"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-
-    return {
-        "task_id": task_id,
-        "status": "success" if result.returncode == 0 else "fail",
-        "logs": result.stdout + result.stderr,
-    }
+    return _run_qa_for_artifact(task_id, task.get("description", ""), artifact)
 
 
 @activity.defn
@@ -234,67 +327,45 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
 
-    # Run dev
-    code = call_llm(
-        DEV_SYSTEM_PROMPT,
-        render_prompt(
-            DEV_USER_PROMPT,
-            task_description=description,
-            task_context=task,
-        ),
+    healing_history: List[Dict[str, Any]] = []
+
+    dev_result = _generate_dev_artifact(
+        task=task,
+        task_id=task_id,
+        description=description,
+        attempt_number=1,
     )
+    qa_result = _run_qa_for_artifact(task_id, description, dev_result["artifact"])
+    healing_history.append({"attempt": 1, "dev": dev_result, "qa": qa_result})
 
-    workspace = Path("/workspace")
-    workspace.mkdir(exist_ok=True)
-    file_path = workspace / f"{task_id}.py"
-    file_path.write_text(code)
-
-    dev_result = {
-        "task_id": task_id,
-        "status": "success",
-        "artifact": str(file_path),
-        "code": code,
-    }
-
-    # Run QA
-    result = subprocess.run(
-        ["python", "-m", "pytest", str(workspace), "-v"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-
-    qa_logs = result.stdout + result.stderr
-    qa_summary_raw = call_llm(
-        QA_SYSTEM_PROMPT,
-        render_prompt(
-            QA_USER_PROMPT,
-            test_logs=qa_logs,
-            task_description=description,
-        ),
-    )
-    try:
-        qa_summary = json.loads(qa_summary_raw)
-    except json.JSONDecodeError:
-        qa_summary = {
-            "status": "success" if result.returncode == 0 else "fail",
-            "failing_tests": [],
-            "error_summary": qa_summary_raw,
-            "root_cause": "",
-            "fix_suggestion": "",
+    while qa_result.get("status") == "fail" and len(healing_history) <= MAX_SELF_HEALING_ATTEMPTS:
+        next_attempt = len(healing_history) + 1
+        autofix_feedback = {
+            "previous_qa_status": qa_result.get("status"),
+            "logs": qa_result.get("logs", ""),
+            "summary": qa_result.get("summary", {}),
         }
-
-    qa_result = {
-        "task_id": task_id,
-        "status": "success" if result.returncode == 0 else "fail",
-        "logs": qa_logs,
-        "summary": qa_summary,
-    }
+        dev_result = _generate_dev_artifact(
+            task=task,
+            task_id=task_id,
+            description=description,
+            attempt_number=next_attempt,
+            qa_feedback=autofix_feedback,
+        )
+        qa_result = _run_qa_for_artifact(task_id, description, dev_result["artifact"])
+        healing_history.append(
+            {"attempt": next_attempt, "dev": dev_result, "qa": qa_result}
+        )
 
     return {
         "task_id": task_id,
+        "status": "success" if qa_result.get("status") == "success" else "fail",
+        "attempts": len(healing_history),
+        "self_healing_applied": len(healing_history) > 1,
+        "max_self_healing_attempts": MAX_SELF_HEALING_ATTEMPTS,
         "dev": dev_result,
         "qa": qa_result,
+        "healing_history": healing_history,
     }
 
 

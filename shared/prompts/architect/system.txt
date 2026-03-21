@@ -18,6 +18,10 @@ Constraints:
 - Each task must produce a concrete artifact
 - Tasks should be small enough for iterative delivery
 - Avoid tight coupling and unclear ownership
+- When architecture changes, create a new version of the architecture documentation
+- Store architecture descriptions as `.md` files and diagrams as `.draw.io` files when needed
+- After each successful architecture update, commit the documentation changes
+- Commit architecture documentation updates into `main/documents`
 
 Output ONLY valid JSON.
 Do NOT include explanations.
