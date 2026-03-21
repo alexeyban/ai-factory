@@ -13,10 +13,11 @@ QA feedback:
 IMPORTANT IMPLEMENTATION RULES:
 
 1. ATOMIC IMPLEMENTATIONS:
-   - Implement ONE focused function or small class per task
-   - Keep files small (under 200 lines)
-   - Keep functions under 100 lines
-   - One concept per file
+    - Implement ONE focused function or small class per task
+    - Keep files small (under 200 lines)
+    - Keep functions under 100 lines
+    - One concept per file
+    - Respect the task input/output/verification contract exactly
 
 2. IF TASK IS TOO LARGE:
    - Focus on core functionality first

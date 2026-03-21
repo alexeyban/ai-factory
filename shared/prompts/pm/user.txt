@@ -25,8 +25,11 @@ Return JSON object:
       "title": "Short descriptive title",
       "description": "Comprehensive specification: what exactly needs to be built, inputs, outputs, edge cases. Must be implementable without additional clarification.",
       "assigned_agent": "architect|dev|qa|analyst|pm",
-      "dependencies": ["dependency-task-id-1"],
-      "acceptance_criteria": ["Specific criterion 1", "Specific criterion 2"],
+       "dependencies": ["dependency-task-id-1"],
+       "input": {"files": [], "context": "required input context"},
+       "output": {"files": [], "artifacts": [], "expected_result": "expected outcome"},
+       "verification": {"method": "pytest|manual|review", "test_file": null, "criteria": []},
+       "acceptance_criteria": ["Specific criterion 1", "Specific criterion 2"],
       "estimated_size": "small|medium|large",
       "can_parallelize": true|false
     }}

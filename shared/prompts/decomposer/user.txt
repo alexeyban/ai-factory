@@ -1,0 +1,26 @@
+Analyze this task and decompose it into atomic sub-tasks:
+
+Task:
+{task_description}
+
+Project Context:
+{project_context}
+
+Requirements:
+1. Break into tasks ≤8000 tokens each
+2. Each task must have complete I/O interface
+3. Minimize dependencies, maximize parallelization
+4. Each task must be independently testable
+
+Return JSON array of tasks with the following structure for each task:
+- task_id: unique identifier (e.g., "T001", "T002")
+- title: short descriptive name
+- description: comprehensive specification for implementation
+- type: "feature"|"bugfix"|"refactor"|"setup"|"test"|"docs"
+- dependencies: [] (list of task_ids this depends on)
+- input: { files: [], context: "..." }
+- output: { files: [], artifacts: [], expected_result: "..." }
+- verification: { method: "...", test_file: "...", criteria: [...] }
+- acceptance_criteria: [...]
+- estimated_size: "small"|"medium"|"large"
+- can_parallelize: true|false

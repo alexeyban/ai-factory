@@ -158,11 +158,55 @@ def push_branch(
         ["push", "-u", remote, branch_name],
         check=False,
     )
+    if result.returncode == 0:
+        return {
+            "ok": True,
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "transport": "ssh",
+        }
+
+    stderr = f"{result.stderr}\n{result.stdout}".lower()
+    if any(
+        marker in stderr
+        for marker in ["repository not found", "could not read from remote repository"]
+    ):
+        token = os.getenv("GITHUB_TOKEN")
+        if token:
+            current_url = run_git(
+                repo_path, ["remote", "get-url", remote], check=False
+            ).stdout.strip()
+            https_url = current_url
+            if current_url.startswith("git@github.com:"):
+                https_url = current_url.replace(
+                    "git@github.com:", "https://github.com/"
+                )
+            if https_url.endswith(".git") is False:
+                https_url += ".git"
+            authed_url = https_url.replace(
+                "https://github.com/", f"https://{token}@github.com/"
+            )
+            run_git(repo_path, ["remote", "set-url", remote, authed_url], check=False)
+            https_result = run_git(
+                repo_path,
+                ["push", "-u", remote, branch_name],
+                check=False,
+            )
+            run_git(repo_path, ["remote", "set-url", remote, current_url], check=False)
+            return {
+                "ok": https_result.returncode == 0,
+                "returncode": https_result.returncode,
+                "stdout": https_result.stdout.strip(),
+                "stderr": https_result.stderr.strip(),
+                "transport": "https",
+            }
     return {
         "ok": result.returncode == 0,
         "returncode": result.returncode,
         "stdout": result.stdout.strip(),
         "stderr": result.stderr.strip(),
+        "transport": "ssh",
     }
 
 

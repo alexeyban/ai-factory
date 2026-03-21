@@ -20,6 +20,9 @@ Return JSON array:
     "description": "Comprehensive, detailed specification of what needs to be built. Include exact requirements, inputs, outputs, edge cases, and implementation hints. This description should be sufficient for a developer to implement this task in isolation without additional clarification.",
     "type": "feature|bugfix|refactor|setup|test",
     "dependencies": ["dependency-task-id-1", "dependency-task-id-2"],
+    "input": {{"files": [], "context": "required input context"}},
+    "output": {{"files": [], "artifacts": [], "expected_result": "expected outcome"}},
+    "verification": {{"method": "pytest|manual|review", "test_file": null, "criteria": []}},
     "acceptance_criteria": ["Specific criteria 1", "Specific criteria 2", "..."],
     "estimated_size": "small|medium|large",
     "can_parallelize": true|false

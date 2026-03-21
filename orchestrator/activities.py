@@ -48,6 +48,8 @@ DEV_SYSTEM_PROMPT = load_prompt("dev", "system")
 DEV_USER_PROMPT = load_prompt("dev", "user")
 PM_SYSTEM_PROMPT = load_prompt("pm", "system")
 PM_USER_PROMPT = load_prompt("pm", "user")
+DECOMPOSER_SYSTEM_PROMPT = load_prompt("decomposer", "system")
+DECOMPOSER_USER_PROMPT = load_prompt("decomposer", "user")
 MAX_SELF_HEALING_ATTEMPTS = int(os.getenv("DEV_QA_MAX_FIX_ATTEMPTS", "2"))
 MAX_PM_RECOVERY_CYCLES = int(os.getenv("PM_MAX_RECOVERY_CYCLES", "2"))
 MAX_TASK_EXECUTION_SECONDS = int(os.getenv("MAX_TASK_EXECUTION_SECONDS", "900"))
@@ -559,6 +561,37 @@ def _remaining_time_seconds(start_time: float) -> int:
     return max(0, MAX_TASK_EXECUTION_SECONDS - int(time.monotonic() - start_time))
 
 
+def _estimate_tokens(text: str) -> int:
+    return max(0, (len(text) + 3) // 4)
+
+
+def _decompose_task(task: Dict[str, Any], project_context: str) -> List[Dict[str, Any]]:
+    payload = render_prompt(
+        DECOMPOSER_USER_PROMPT,
+        task_description=json.dumps(task, indent=2, ensure_ascii=True),
+        project_context=project_context,
+    )
+    raw = call_llm(DECOMPOSER_SYSTEM_PROMPT, payload)
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else [task]
+    except json.JSONDecodeError:
+        return [task]
+
+
+def _expand_execution_plan(
+    tasks: List[Dict[str, Any]], project_context: str
+) -> List[Dict[str, Any]]:
+    expanded: List[Dict[str, Any]] = []
+    for task in tasks:
+        desc = json.dumps(task.get("description", task), ensure_ascii=True)
+        if _estimate_tokens(desc) > 8000:
+            expanded.extend(_decompose_task(task, project_context))
+        else:
+            expanded.append(task)
+    return expanded
+
+
 def _task_timed_out(start_time: float) -> bool:
     return _remaining_time_seconds(start_time) <= 0
 
@@ -569,7 +602,7 @@ def _record_pm_artifacts(
     plan: Dict[str, Any],
     architect_notes: str,
     analyst_notes: str,
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     repo_path = _ensure_project_scaffold(task, description)
     run_git(repo_path, ["checkout", "main"])
 
@@ -613,7 +646,7 @@ def _record_pm_artifacts(
     }
 
 
-def _record_pm_intake(task: Dict[str, Any], description: str) -> Dict[str, str]:
+def _record_pm_intake(task: Dict[str, Any], description: str) -> Dict[str, Any]:
     repo_path = _ensure_project_scaffold(task, description)
     run_git(repo_path, ["checkout", "main"])
 
@@ -640,7 +673,7 @@ def _record_pm_intake(task: Dict[str, Any], description: str) -> Dict[str, str]:
 
 def _record_architecture_artifacts(
     task: Dict[str, Any], raw_output: str, tasks: List[Dict[str, Any]]
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     repo_path = _ensure_project_scaffold(task, task.get("description", ""))
     run_git(repo_path, ["checkout", "main"])
 
@@ -685,7 +718,7 @@ def _record_architecture_artifacts(
     }
 
 
-def _record_architecture_request(task: Dict[str, Any]) -> Dict[str, str]:
+def _record_architecture_request(task: Dict[str, Any]) -> Dict[str, Any]:
     repo_path = _ensure_project_scaffold(task, task.get("description", ""))
     run_git(repo_path, ["checkout", "main"])
 
@@ -1100,6 +1133,18 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     try:
         plan = json.loads(pm_output)
         execution_plan = plan.get("execution_plan", [])
+        execution_plan = _expand_execution_plan(
+            execution_plan,
+            json.dumps(
+                {
+                    "project_name": project_name,
+                    "github_url": github_url,
+                    "project_repo_path": str(project_repo_path),
+                },
+                ensure_ascii=True,
+            ),
+        )
+        plan["execution_plan"] = execution_plan
         LOGGER.info(
             "[PM AGENT] Plan parsed successfully | %d tasks planned",
             len(execution_plan),
