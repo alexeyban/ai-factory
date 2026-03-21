@@ -16,12 +16,16 @@ with workflow.unsafe.imports_passed_through():
     )
 
 
-LLM_ACTIVITY_TIMEOUT_MINUTES = int(os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30"))
+LLM_ACTIVITY_TIMEOUT_MINUTES = int(
+    os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30")
+)
 TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "6"))
 
 
 def _raise_non_retryable_python_failure(exc: Exception) -> None:
-    if isinstance(exc, (AttributeError, KeyError, IndexError, TypeError, AssertionError)):
+    if isinstance(
+        exc, (AttributeError, KeyError, IndexError, TypeError, AssertionError)
+    ):
         raise ApplicationError(
             f"Non-retryable workflow code failure: {exc}",
             type=exc.__class__.__name__,
@@ -52,27 +56,33 @@ class OrchestratorWorkflow:
                 maximum_attempts=3,
             )
 
+            workflow_id = workflow.info().workflow_id
+
             workflow.logger.info(
-                f"Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')}"
+                f"[{workflow_id}] Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')[:100]}"
             )
 
             pm_result = _require_activity_result(
                 "pm_activity",
                 await workflow.execute_activity(
-                pm_activity,
-                initial_task,
-                start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                retry_policy=retry_policy,
+                    pm_activity,
+                    initial_task,
+                    start_to_close_timeout=timedelta(
+                        minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                    ),
+                    retry_policy=retry_policy,
                 ),
             )
 
             workflow.logger.info(
-                f"PM completed, generated {len(pm_result.get('execution_plan', []))} planned assignments"
+                f"[{workflow_id}] PM completed, generated {len(pm_result.get('execution_plan', []))} planned assignments"
             )
 
             architect_request = {
                 **initial_task,
-                "project_name": pm_result.get("project_name", initial_task.get("project_name")),
+                "project_name": pm_result.get(
+                    "project_name", initial_task.get("project_name")
+                ),
                 "project_repo_path": pm_result.get("project_repo_path"),
                 "description": (
                     f"{initial_task.get('description', '')}\n\n"
@@ -85,21 +95,25 @@ class OrchestratorWorkflow:
             architect_result = _require_activity_result(
                 "architect_activity",
                 await workflow.execute_activity(
-                architect_activity,
-                architect_request,
-                start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                retry_policy=retry_policy,
+                    architect_activity,
+                    architect_request,
+                    start_to_close_timeout=timedelta(
+                        minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                    ),
+                    retry_policy=retry_policy,
                 ),
             )
 
             workflow.logger.info(
-                f"Architect completed, got {len(architect_result.get('tasks', []))} tasks"
+                f"[{workflow_id}] Architect completed, got {len(architect_result.get('tasks', []))} tasks"
             )
 
             tasks = architect_result.get("tasks", [])
 
             if not tasks:
-                workflow.logger.warning("No tasks returned from architect")
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks returned from architect"
+                )
                 return {
                     "status": "complete",
                     "pm_result": pm_result,
@@ -108,13 +122,18 @@ class OrchestratorWorkflow:
                     "analysis": {"status": "skipped", "reason": "no tasks"},
                 }
 
-            workflow.logger.info(f"Processing {len(tasks)} tasks in parallel")
+            workflow.logger.info(
+                f"[{workflow_id}] Processing {len(tasks)} tasks in parallel"
+            )
 
-            dev_qa_results = await workflow.execute_activity(
-                process_all_tasks,
-                tasks,
-                start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
-                retry_policy=retry_policy,
+            dev_qa_results = _require_activity_result(
+                "process_all_tasks",
+                await workflow.execute_activity(
+                    process_all_tasks,
+                    tasks,
+                    start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
+                    retry_policy=retry_policy,
+                ),
             )
 
             recovery_rounds = []
@@ -126,45 +145,64 @@ class OrchestratorWorkflow:
                 for result in dev_qa_results
             ):
                 recovery_cycle += 1
-                workflow.logger.info(f"Starting PM recovery cycle {recovery_cycle}")
+                workflow.logger.info(
+                    f"[{workflow_id}] Starting PM recovery cycle {recovery_cycle}"
+                )
+
                 recovery_request = {
                     **initial_task,
-                    "project_name": pm_result.get("project_name", initial_task.get("project_name")),
+                    "project_name": pm_result.get(
+                        "project_name", initial_task.get("project_name")
+                    ),
                     "project_repo_path": pm_result.get("project_repo_path"),
                     "recovery_cycle": recovery_cycle,
-                    "failure_summary": dev_qa_results,
+                    "failure_summary": [
+                        {
+                            "task_id": r.get("task_id"),
+                            "status": r.get("status"),
+                            "error": r.get("error"),
+                        }
+                        for r in dev_qa_results
+                    ],
                     "description": (
                         f"{initial_task.get('description', '')}\n\n"
                         f"Recovery cycle {recovery_cycle}\n"
                         f"Previous execution results:\n{dev_qa_results}"
                     ),
                 }
+
                 pm_recovery_result = _require_activity_result(
                     "pm_recovery_activity",
                     await workflow.execute_activity(
-                    pm_recovery_activity,
-                    recovery_request,
-                    start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                    retry_policy=retry_policy,
+                        pm_recovery_activity,
+                        recovery_request,
+                        start_to_close_timeout=timedelta(
+                            minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                        ),
+                        retry_policy=retry_policy,
                     ),
                 )
+
                 recovery_architect_result = _require_activity_result(
                     "architect_activity",
                     await workflow.execute_activity(
-                    architect_activity,
-                    {
-                        **recovery_request,
-                        "description": (
-                            f"{recovery_request.get('description', '')}\n\n"
-                            f"PM recovery summary:\n{pm_recovery_result.get('delivery_summary', '')}\n\n"
-                            f"PM recovery guidance:\n{pm_recovery_result.get('architect_guidance', [])}\n\n"
-                            f"PM recovery plan:\n{pm_recovery_result.get('execution_plan', [])}"
+                        architect_activity,
+                        {
+                            **recovery_request,
+                            "description": (
+                                f"{recovery_request.get('description', '')}\n\n"
+                                f"PM recovery summary:\n{pm_recovery_result.get('delivery_summary', '')}\n\n"
+                                f"PM recovery guidance:\n{pm_recovery_result.get('architect_guidance', [])}\n\n"
+                                f"PM recovery plan:\n{pm_recovery_result.get('execution_plan', [])}"
+                            ),
+                        },
+                        start_to_close_timeout=timedelta(
+                            minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
                         ),
-                    },
-                    start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                    retry_policy=retry_policy,
+                        retry_policy=retry_policy,
                     ),
                 )
+
                 recovery_tasks = recovery_architect_result.get("tasks", [])
                 if not recovery_tasks:
                     recovery_rounds.append(
@@ -176,12 +214,19 @@ class OrchestratorWorkflow:
                         }
                     )
                     break
-                recovery_results = await workflow.execute_activity(
-                    process_all_tasks,
-                    recovery_tasks,
-                    start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
-                    retry_policy=retry_policy,
+
+                recovery_results = _require_activity_result(
+                    "process_all_tasks",
+                    await workflow.execute_activity(
+                        process_all_tasks,
+                        recovery_tasks,
+                        start_to_close_timeout=timedelta(
+                            hours=TASK_BATCH_TIMEOUT_HOURS
+                        ),
+                        retry_policy=retry_policy,
+                    ),
                 )
+
                 recovery_rounds.append(
                     {
                         "cycle": recovery_cycle,
@@ -192,15 +237,19 @@ class OrchestratorWorkflow:
                 )
                 dev_qa_results.extend(recovery_results)
 
-            workflow.logger.info("All tasks processed, running analyst")
+            workflow.logger.info(
+                f"[{workflow_id}] All tasks processed, running analyst"
+            )
 
             analysis = _require_activity_result(
                 "analyst_activity",
                 await workflow.execute_activity(
-                analyst_activity,
-                dev_qa_results,
-                start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                retry_policy=retry_policy,
+                    analyst_activity,
+                    {"dev_qa_results": dev_qa_results, "workflow_id": workflow_id},
+                    start_to_close_timeout=timedelta(
+                        minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                    ),
+                    retry_policy=retry_policy,
                 ),
             )
 
@@ -213,7 +262,9 @@ class OrchestratorWorkflow:
             ):
                 final_status = "needs_attention"
 
-            workflow.logger.info(f"Workflow completed with status {final_status}")
+            workflow.logger.info(
+                f"[{workflow_id}] Workflow completed with status {final_status}"
+            )
 
             return {
                 "status": final_status,
@@ -224,6 +275,8 @@ class OrchestratorWorkflow:
                 "analysis": analysis,
             }
         except Exception as exc:
+            workflow_id = workflow.info().workflow_id
+            workflow.logger.error(f"[{workflow_id}] Workflow failed: {exc}")
             _raise_non_retryable_python_failure(exc)
 
 
@@ -251,34 +304,42 @@ class ProjectWorkflow:
                 maximum_attempts=3,
             )
 
-            workflow.logger.info(f"Starting project workflow: {project_name}")
+            workflow_id = workflow.info().workflow_id
+
+            workflow.logger.info(
+                f"[{workflow_id}] Starting project workflow: {project_name}"
+            )
 
             pm_result = _require_activity_result(
                 "pm_activity",
                 await workflow.execute_activity(
-                pm_activity,
-                initial_task,
-                start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                retry_policy=retry_policy,
+                    pm_activity,
+                    initial_task,
+                    start_to_close_timeout=timedelta(
+                        minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                    ),
+                    retry_policy=retry_policy,
                 ),
             )
 
             architect_result = _require_activity_result(
                 "architect_activity",
                 await workflow.execute_activity(
-                architect_activity,
-                {
-                    **initial_task,
-                    "project_name": pm_result.get("project_name", project_name),
-                    "project_repo_path": pm_result.get("project_repo_path"),
-                    "description": (
-                        f"{description}\n\nPM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
-                        f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
-                        f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                    architect_activity,
+                    {
+                        **initial_task,
+                        "project_name": pm_result.get("project_name", project_name),
+                        "project_repo_path": pm_result.get("project_repo_path"),
+                        "description": (
+                            f"{description}\n\nPM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                            f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
+                            f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                        ),
+                    },
+                    start_to_close_timeout=timedelta(
+                        minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
                     ),
-                },
-                start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                retry_policy=retry_policy,
+                    retry_policy=retry_policy,
                 ),
             )
 
@@ -292,10 +353,14 @@ class ProjectWorkflow:
                     "dev_qa_results": [],
                 }
 
-            dev_qa_results = await workflow.execute_activity(
-                process_all_tasks,
-                tasks,
-                start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
+            dev_qa_results = _require_activity_result(
+                "process_all_tasks",
+                await workflow.execute_activity(
+                    process_all_tasks,
+                    tasks,
+                    start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
+                    retry_policy=retry_policy,
+                ),
             )
 
             recovery_rounds = []
@@ -312,37 +377,51 @@ class ProjectWorkflow:
                     "project_name": pm_result.get("project_name", project_name),
                     "project_repo_path": pm_result.get("project_repo_path"),
                     "recovery_cycle": recovery_cycle,
-                    "failure_summary": dev_qa_results,
+                    "failure_summary": [
+                        {
+                            "task_id": r.get("task_id"),
+                            "status": r.get("status"),
+                            "error": r.get("error"),
+                        }
+                        for r in dev_qa_results
+                    ],
                     "description": (
                         f"{description}\n\nRecovery cycle {recovery_cycle}\nPrevious execution results:\n{dev_qa_results}"
                     ),
                 }
+
                 pm_recovery_result = _require_activity_result(
                     "pm_recovery_activity",
                     await workflow.execute_activity(
-                    pm_recovery_activity,
-                    recovery_request,
-                    start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                    retry_policy=retry_policy,
+                        pm_recovery_activity,
+                        recovery_request,
+                        start_to_close_timeout=timedelta(
+                            minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                        ),
+                        retry_policy=retry_policy,
                     ),
                 )
+
                 recovery_architect_result = _require_activity_result(
                     "architect_activity",
                     await workflow.execute_activity(
-                    architect_activity,
-                    {
-                        **recovery_request,
-                        "description": (
-                            f"{recovery_request.get('description', '')}\n\n"
-                            f"PM recovery summary:\n{pm_recovery_result.get('delivery_summary', '')}\n\n"
-                            f"PM recovery guidance:\n{pm_recovery_result.get('architect_guidance', [])}\n\n"
-                            f"PM recovery plan:\n{pm_recovery_result.get('execution_plan', [])}"
+                        architect_activity,
+                        {
+                            **recovery_request,
+                            "description": (
+                                f"{recovery_request.get('description', '')}\n\n"
+                                f"PM recovery summary:\n{pm_recovery_result.get('delivery_summary', '')}\n\n"
+                                f"PM recovery guidance:\n{pm_recovery_result.get('architect_guidance', [])}\n\n"
+                                f"PM recovery plan:\n{pm_recovery_result.get('execution_plan', [])}"
+                            ),
+                        },
+                        start_to_close_timeout=timedelta(
+                            minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
                         ),
-                    },
-                    start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
-                    retry_policy=retry_policy,
+                        retry_policy=retry_policy,
                     ),
                 )
+
                 recovery_tasks = recovery_architect_result.get("tasks", [])
                 if not recovery_tasks:
                     recovery_rounds.append(
@@ -354,11 +433,19 @@ class ProjectWorkflow:
                         }
                     )
                     break
-                recovery_results = await workflow.execute_activity(
-                    process_all_tasks,
-                    recovery_tasks,
-                    start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
+
+                recovery_results = _require_activity_result(
+                    "process_all_tasks",
+                    await workflow.execute_activity(
+                        process_all_tasks,
+                        recovery_tasks,
+                        start_to_close_timeout=timedelta(
+                            hours=TASK_BATCH_TIMEOUT_HOURS
+                        ),
+                        retry_policy=retry_policy,
+                    ),
                 )
+
                 recovery_rounds.append(
                     {
                         "cycle": recovery_cycle,
@@ -372,9 +459,12 @@ class ProjectWorkflow:
             analysis = _require_activity_result(
                 "analyst_activity",
                 await workflow.execute_activity(
-                analyst_activity,
-                dev_qa_results,
-                start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                    analyst_activity,
+                    {"dev_qa_results": dev_qa_results, "workflow_id": workflow_id},
+                    start_to_close_timeout=timedelta(
+                        minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
+                    ),
+                    retry_policy=retry_policy,
                 ),
             )
 
@@ -397,4 +487,6 @@ class ProjectWorkflow:
                 "analysis": analysis,
             }
         except Exception as exc:
+            workflow_id = workflow.info().workflow_id
+            workflow.logger.error(f"[{workflow_id}] Workflow failed: {exc}")
             _raise_non_retryable_python_failure(exc)

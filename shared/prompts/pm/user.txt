@@ -7,20 +7,28 @@ Architect input:
 Analyst input:
 {analyst_input}
 
+IMPORTANT: 
+- If the combined context above exceeds 8000 tokens, you MUST split the work into many small atomic tasks
+- Each task description must be comprehensive and ready for implementation
+- Prefer 10 small tasks over 1 large task
+- Each task should be implementable and testable in isolation
+
 Return JSON object:
 {{
-  "project_goal": "...",
-  "delivery_summary": "...",
-  "architect_guidance": ["..."],
-  "analyst_guidance": ["..."],
+  "project_goal": "Brief summary of the overall project goal",
+  "delivery_summary": "Summary of what will be delivered and how it addresses the task",
+  "architect_guidance": ["Guidance for architect from this planning session"],
+  "analyst_guidance": ["Guidance for analyst from this planning session"],
   "execution_plan": [
     {{
-      "task_id": "...",
-      "title": "...",
-      "description": "...",
-      "assigned_agent": "architect|dev|qa|analyst|pm|new_agent_name",
-      "dependencies": [],
-      "acceptance_criteria": []
+      "task_id": "unique-task-id",
+      "title": "Short descriptive title",
+      "description": "Comprehensive specification: what exactly needs to be built, inputs, outputs, edge cases. Must be implementable without additional clarification.",
+      "assigned_agent": "architect|dev|qa|analyst|pm",
+      "dependencies": ["dependency-task-id-1"],
+      "acceptance_criteria": ["Specific criterion 1", "Specific criterion 2"],
+      "estimated_size": "small|medium|large",
+      "can_parallelize": true|false
     }}
   ]
 }}
@@ -31,3 +39,8 @@ If the best way to complete the task is to extend the platform, you may include 
 - add Docker service definitions
 - define or connect Kafka topics/messages
 - register new capabilities in the local system
+
+For large projects, consider:
+- MVP first (minimum viable product with core features)
+- Then enhancements (additional features, optimizations)
+- Parallel tracks for independent components

@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-from openai import APIConnectionError, APITimeoutError, APIStatusError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    APIStatusError,
+    OpenAI,
+    RateLimitError,
+)
 
 
 def _env_flag(name: str, default: str = "false") -> bool:
@@ -28,18 +34,24 @@ class LLMConfig:
     temperature: float
     max_tokens: Optional[int]
     timeout: float
+    max_prompt_tokens: Optional[int]
 
 
-FALLBACK_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
+FALLBACK_STATUS_CODES = {400, 408, 409, 413, 429, 500, 502, 503, 504}
 RATE_LIMIT_WINDOWS = {
     "gemini": {"max_requests": 10, "window_seconds": 60},
+    "opencode": {"max_requests": 60, "window_seconds": 60},
 }
-PROVIDER_COOLDOWN_SECONDS = int(os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(12 * 60 * 60)))
+PROVIDER_COOLDOWN_SECONDS = int(
+    os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(12 * 60 * 60))
+)
 _provider_request_times: dict[str, deque[float]] = {
     provider: deque() for provider in RATE_LIMIT_WINDOWS
 }
 _provider_cooldown_file = Path(
-    os.getenv("LLM_PROVIDER_COOLDOWN_FILE", "/tmp/ai_factory_llm_provider_cooldowns.json")
+    os.getenv(
+        "LLM_PROVIDER_COOLDOWN_FILE", "/tmp/ai_factory_llm_provider_cooldowns.json"
+    )
 )
 
 
@@ -58,11 +70,20 @@ def _normalize_model_name(provider: str, model: str) -> str:
             return "big-pickle"
         if normalized == "bigpickle":
             return "big-pickle"
-        if normalized_lower in {"big-pickle", "opencode big pickle", "opencode/big-pickle"}:
+        if normalized_lower in {
+            "big-pickle",
+            "opencode big pickle",
+            "opencode/big-pickle",
+        }:
             return "big-pickle"
 
     if provider == "openai":
-        if normalized_lower in {"gpt-5.4 mini", "gpt5.4mini", "gpt-5-mini", "gpt 5 mini"}:
+        if normalized_lower in {
+            "gpt-5.4 mini",
+            "gpt5.4mini",
+            "gpt-5-mini",
+            "gpt 5 mini",
+        }:
             return "gpt-5-mini"
 
     if provider == "gemini":
@@ -129,7 +150,11 @@ def _default_api_key(provider: str) -> Optional[str]:
     }
     env_name = env_by_provider.get(provider, "LLM_API_KEY")
     if provider == "ollama":
-        return os.getenv("OLLAMA_API_KEY") or os.getenv("OLLANA_API_KEY") or os.getenv("LLM_API_KEY")
+        return (
+            os.getenv("OLLAMA_API_KEY")
+            or os.getenv("OLLANA_API_KEY")
+            or os.getenv("LLM_API_KEY")
+        )
     return os.getenv(env_name) or os.getenv("LLM_API_KEY")
 
 
@@ -140,7 +165,9 @@ def _default_model_for_provider(provider: str) -> str:
         "openrouter": os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
         "deepseek": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        "ollama": os.getenv("OLLAMA_MODEL") or os.getenv("OLLANA_MODEL") or "llama4:scout",
+        "ollama": os.getenv("OLLAMA_MODEL")
+        or os.getenv("OLLANA_MODEL")
+        or "llama4:scout",
     }
     return defaults.get(provider, os.getenv("LLM_MODEL", "gpt-4.1"))
 
@@ -154,7 +181,12 @@ def _explicit_fallback_chain() -> list[str]:
 
 def _provider_has_credentials(provider: str) -> bool:
     if provider == "ollama":
-        return bool(os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_MODEL") or os.getenv("OLLANA_API_KEY") or os.getenv("OLLAMA_API_KEY"))
+        return bool(
+            os.getenv("OLLAMA_BASE_URL")
+            or os.getenv("OLLAMA_MODEL")
+            or os.getenv("OLLANA_API_KEY")
+            or os.getenv("OLLAMA_API_KEY")
+        )
     return bool(_default_api_key(provider))
 
 
@@ -195,8 +227,12 @@ def _config_for_provider(
     return load_llm_config(
         model=requested_model or _default_model_for_provider(provider),
         provider=provider,
-        api_key=api_key if provider == _infer_provider_from_model(model, provider) else None,
-        base_url=base_url if provider == _infer_provider_from_model(model, provider) else None,
+        api_key=api_key
+        if provider == _infer_provider_from_model(model, provider)
+        else None,
+        base_url=base_url
+        if provider == _infer_provider_from_model(model, provider)
+        else None,
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
@@ -230,8 +266,14 @@ def _load_provider_cooldowns() -> dict[str, float]:
 
 def _save_provider_cooldowns(cooldowns: dict[str, float]) -> None:
     _provider_cooldown_file.parent.mkdir(parents=True, exist_ok=True)
-    payload = {provider: until_ts for provider, until_ts in cooldowns.items() if until_ts > time.time()}
-    _provider_cooldown_file.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n")
+    payload = {
+        provider: until_ts
+        for provider, until_ts in cooldowns.items()
+        if until_ts > time.time()
+    }
+    _provider_cooldown_file.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
+    )
 
 
 def _provider_cooldown_remaining(provider: str) -> float:
@@ -239,7 +281,9 @@ def _provider_cooldown_remaining(provider: str) -> float:
     return max(0.0, cooldowns.get(provider, 0.0) - time.time())
 
 
-def _mark_provider_rate_limited(provider: str, cooldown_seconds: int = PROVIDER_COOLDOWN_SECONDS) -> None:
+def _mark_provider_rate_limited(
+    provider: str, cooldown_seconds: int = PROVIDER_COOLDOWN_SECONDS
+) -> None:
     cooldowns = _load_provider_cooldowns()
     cooldowns[provider] = time.time() + cooldown_seconds
     _save_provider_cooldowns(cooldowns)
@@ -278,6 +322,7 @@ def _request_with_fallback(
     temperature: Optional[float],
     max_tokens: Optional[int],
     timeout: Optional[float],
+    max_prompt_tokens: Optional[int],
 ) -> str:
     primary_provider = _infer_provider_from_model(model, provider)
     fallback_chain = _build_fallback_chain(primary_provider)
@@ -327,7 +372,9 @@ def _request_with_fallback(
 
     if last_error:
         raise last_error
-    raise RuntimeError("No LLM providers were available for the request; all candidates may be cooling down or unavailable")
+    raise RuntimeError(
+        "No LLM providers were available for the request; all candidates may be cooling down or unavailable"
+    )
 
 
 def _supports_custom_temperature(provider: str, model: str) -> bool:
@@ -376,19 +423,35 @@ def load_llm_config(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
+    max_prompt_tokens: Optional[int] = None,
 ) -> LLMConfig:
     resolved_provider = _infer_provider_from_model(model, provider)
-    configured_model = model or os.getenv("LLM_MODEL") or _default_model_for_provider(resolved_provider)
+    configured_model = (
+        model
+        or os.getenv("LLM_MODEL")
+        or _default_model_for_provider(resolved_provider)
+    )
     resolved_model = _normalize_model_name(resolved_provider, configured_model)
 
     return LLMConfig(
         provider=resolved_provider,
         model=resolved_model,
         api_key=api_key or _default_api_key(resolved_provider),
-        base_url=base_url or os.getenv("LLM_BASE_URL") or _default_base_url(resolved_provider),
-        temperature=temperature if temperature is not None else float(os.getenv("LLM_TEMPERATURE", "0.2")),
-        max_tokens=max_tokens if max_tokens is not None else _optional_int(os.getenv("LLM_MAX_TOKENS")),
-        timeout=timeout if timeout is not None else float(os.getenv("LLM_TIMEOUT", "120")),
+        base_url=base_url
+        or os.getenv("LLM_BASE_URL")
+        or _default_base_url(resolved_provider),
+        temperature=temperature
+        if temperature is not None
+        else float(os.getenv("LLM_TEMPERATURE", "0.2")),
+        max_tokens=max_tokens
+        if max_tokens is not None
+        else _optional_int(os.getenv("LLM_MAX_TOKENS")),
+        timeout=timeout
+        if timeout is not None
+        else float(os.getenv("LLM_TIMEOUT", "120")),
+        max_prompt_tokens=max_prompt_tokens
+        if max_prompt_tokens is not None
+        else _optional_int(os.getenv("LLM_MAX_PROMPT_TOKENS")),
     )
 
 
@@ -398,12 +461,56 @@ def _optional_int(value: Optional[str]) -> Optional[int]:
     return int(value)
 
 
-def _build_messages(system_prompt: str, user_prompt: str) -> list[dict[str, str]]:
+def _build_messages(
+    system_prompt: str,
+    user_prompt: str,
+    max_prompt_tokens: Optional[int] = None,
+) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     if user_prompt:
         messages.append({"role": "user", "content": user_prompt})
+
+    if max_prompt_tokens is not None and max_prompt_tokens > 0:
+        # Approximate tokens by character count (rough heuristic: 1 token ~ 4 chars)
+        max_chars = max_prompt_tokens * 4
+        current_char_count = sum(len(msg.get("content", "")) for msg in messages)
+
+        if current_char_count > max_chars:
+            LOGGER.warning(
+                "Prompt exceeds max_prompt_tokens (%s chars vs %s max). Truncating user message.",
+                current_char_count,
+                max_chars,
+            )
+            # Prioritize truncating the user message
+            user_message_index = -1
+            for i, msg in enumerate(messages):
+                if msg.get("role") == "user":
+                    user_message_index = i
+                    break
+
+            if user_message_index != -1:
+                system_content_len = sum(
+                    len(msg.get("content", ""))
+                    for i, msg in enumerate(messages)
+                    if i != user_message_index
+                )
+                remaining_chars_for_user = max(0, max_chars - system_content_len)
+                original_user_content = messages[user_message_index].get("content", "")
+                if len(original_user_content) > remaining_chars_for_user:
+                    messages[user_message_index]["content"] = (
+                        original_user_content[:remaining_chars_for_user]
+                        + "\n\n... (truncated)"
+                    )
+            else:
+                # If no user message, truncate the last message (system message or other)
+                last_message = messages[-1]
+                if len(last_message.get("content", "")) > max_chars:
+                    last_message["content"] = (
+                        last_message["content"][:max_chars] + "\n\n... (truncated)"
+                    )
+
     return messages
 
 
@@ -607,6 +714,7 @@ def call_llm(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
+    max_prompt_tokens: Optional[int] = None,
 ) -> str:
     if MOCK_MODE:
         return _mock_llm(system_prompt, user_prompt)
@@ -619,9 +727,12 @@ def call_llm(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        max_prompt_tokens=max_prompt_tokens,
     )
     return _request_with_fallback(
-        messages=_build_messages(system_prompt, user_prompt),
+        messages=_build_messages(
+            system_prompt, user_prompt, max_prompt_tokens=config.max_prompt_tokens
+        ),
         model=model,
         provider=provider,
         api_key=api_key,
@@ -629,6 +740,9 @@ def call_llm(
         temperature=temperature if temperature is not None else config.temperature,
         max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
         timeout=timeout if timeout is not None else config.timeout,
+        max_prompt_tokens=max_prompt_tokens
+        if max_prompt_tokens is not None
+        else config.max_prompt_tokens,
     )
 
 
@@ -642,6 +756,7 @@ def call_llm_with_messages(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
+    max_prompt_tokens: Optional[int] = None,
 ) -> str:
     if MOCK_MODE:
         user_prompt = "\n".join(message.get("content", "") for message in messages)
@@ -655,6 +770,7 @@ def call_llm_with_messages(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        max_prompt_tokens=max_prompt_tokens,
     )
     return _request_with_fallback(
         messages=list(messages),
@@ -665,4 +781,7 @@ def call_llm_with_messages(
         temperature=temperature if temperature is not None else config.temperature,
         max_tokens=max_tokens if max_tokens is not None else config.max_tokens,
         timeout=timeout if timeout is not None else config.timeout,
+        max_prompt_tokens=max_prompt_tokens
+        if max_prompt_tokens is not None
+        else config.max_prompt_tokens,
     )

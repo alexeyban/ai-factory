@@ -1,10 +1,11 @@
 import json
+import logging
 import os
 import re
 import subprocess
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -25,6 +26,8 @@ from shared.git import (
 )
 from shared.llm import call_llm
 from shared.prompts.loader import load_prompt, render_prompt
+
+LOGGER = logging.getLogger(__name__)
 
 
 retry_policy = RetryPolicy(
@@ -56,6 +59,71 @@ AGENT_PLAN_PROMPTS = {
     "qa": QA_SYSTEM_PROMPT,
     "analyst": ANALYST_SYSTEM_PROMPT,
 }
+
+
+def _load_activity_input(task: Dict[str, Any]) -> Dict[str, Any]:
+    if "_context_file" in task:
+        try:
+            filepath = Path(task["_context_file"])
+            if filepath.exists():
+                data = json.loads(filepath.read_text(encoding="utf-8"))
+                LOGGER.info(
+                    "[activity] Loaded context | file=%s | workflow=%s",
+                    filepath.name,
+                    task.get("_workflow_id", "unknown"),
+                )
+                for key in ["_context_file", "_workflow_id"]:
+                    data.pop(key, None)
+                return data
+        except Exception as e:
+            LOGGER.warning("[activity] Failed to load context file: %s", e)
+    return task
+
+
+def _wrap_activity_result(
+    workflow_id: str,
+    stage: str,
+    result: Dict[str, Any],
+    start_time: datetime | None = None,
+) -> Dict[str, Any]:
+    duration_ms = None
+    if start_time:
+        duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+
+    output_dir = Path("/workspace/.ai_factory/contexts") / workflow_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f"output_{stage}.json"
+
+    context_data = {
+        "_meta": {
+            "workflow_id": workflow_id,
+            "stage": stage,
+            "saved_at": datetime.now().isoformat(),
+            "duration_ms": duration_ms,
+            "version": "1.0",
+        },
+        **result,
+    }
+
+    try:
+        output_file.write_text(
+            json.dumps(context_data, indent=2, ensure_ascii=True), encoding="utf-8"
+        )
+        LOGGER.info(
+            "[activity] Saved result | workflow=%s | stage=%s | duration=%sms | file=%s",
+            workflow_id,
+            stage,
+            duration_ms or "?",
+            output_file.name,
+        )
+    except Exception as e:
+        LOGGER.error("[activity] Failed to save result: %s", e)
+
+    return {
+        "_context_file": str(output_file),
+        "_workflow_id": workflow_id,
+        **result,
+    }
 
 
 def _ensure_task_list(output: str) -> List[Dict[str, Any]]:
@@ -97,7 +165,9 @@ def _extract_tasks_from_spec(description: str) -> List[Dict[str, Any]]:
 
     for line in lines:
         stripped = line.strip()
-        task_match = re.match(r"^\|\s*TASK\s+(\d+)\s+(.+?)\s*\|", stripped, re.IGNORECASE)
+        task_match = re.match(
+            r"^\|\s*TASK\s+(\d+)\s+(.+?)\s*\|", stripped, re.IGNORECASE
+        )
         if task_match:
             task_num = task_match.group(1)
             if task_num in seen_ids:
@@ -177,12 +247,7 @@ def _ensure_project_scaffold(task: Dict[str, Any], description: str) -> Path:
 
     gitignore_file = repo_path / ".gitignore"
     if not gitignore_file.exists():
-        gitignore_file.write_text(
-            "__pycache__/\n"
-            "*.py[cod]\n"
-            ".pytest_cache/\n"
-            ".venv/\n"
-        )
+        gitignore_file.write_text("__pycache__/\n*.py[cod]\n.pytest_cache/\n.venv/\n")
 
     spec_file = repo_path / "TASK_SPEC.md"
     spec_file.write_text(description or "No project description provided.\n")
@@ -199,7 +264,12 @@ def _ensure_project_python_env(repo_path: Path) -> Path:
     python_path = _project_python(repo_path)
     if not python_path.exists():
         subprocess.run(["python", "-m", "venv", str(repo_path / ".venv")], check=True)
-    subprocess.run([str(python_path), "-m", "pip", "install", "--upgrade", "pip"], check=True, capture_output=True, text=True)
+    subprocess.run(
+        [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     return python_path
 
 
@@ -445,8 +515,12 @@ def _record_continuation_plan(
     state: Dict[str, Any],
 ) -> Dict[str, str]:
     continuation_dir = repo_path / ".ai_factory" / "continuations"
-    md_path = _next_version_path(continuation_dir, f"{role}_{_task_slug(task)}_continuation", ".md")
-    json_path = _next_version_path(continuation_dir, f"{role}_{_task_slug(task)}_continuation", ".json")
+    md_path = _next_version_path(
+        continuation_dir, f"{role}_{_task_slug(task)}_continuation", ".md"
+    )
+    json_path = _next_version_path(
+        continuation_dir, f"{role}_{_task_slug(task)}_continuation", ".json"
+    )
     body = (
         f"## Reason\n{reason}\n\n"
         f"## Task\n{_task_title(task)}\n\n"
@@ -455,7 +529,9 @@ def _record_continuation_plan(
     )
     _write_markdown(md_path, f"Continuation Plan: {_task_title(task)}", body)
     _write_json(json_path, {"role": role, "reason": reason, "state": state})
-    commit_sha = commit_all(repo_path, f"{role}: save continuation plan for {_task_slug(task)}")
+    commit_sha = commit_all(
+        repo_path, f"{role}: save continuation plan for {_task_slug(task)}"
+    )
     push_result = (
         _sync_branch_to_remote(repo_path, current_branch(repo_path))
         if commit_sha
@@ -477,7 +553,13 @@ def _task_timed_out(start_time: float) -> bool:
     return _remaining_time_seconds(start_time) <= 0
 
 
-def _record_pm_artifacts(task: Dict[str, Any], description: str, plan: Dict[str, Any], architect_notes: str, analyst_notes: str) -> Dict[str, str]:
+def _record_pm_artifacts(
+    task: Dict[str, Any],
+    description: str,
+    plan: Dict[str, Any],
+    architect_notes: str,
+    analyst_notes: str,
+) -> Dict[str, str]:
     repo_path = _ensure_project_scaffold(task, description)
     run_git(repo_path, ["checkout", "main"])
 
@@ -505,7 +587,11 @@ def _record_pm_artifacts(task: Dict[str, Any], description: str, plan: Dict[str,
     _write_json(plan_json_path, plan)
 
     commit_sha = commit_all(repo_path, "pm: create project brief and delivery plan")
-    push_result = _sync_branch_to_remote(repo_path, current_branch(repo_path)) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    push_result = (
+        _sync_branch_to_remote(repo_path, current_branch(repo_path))
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
     return {
         "project_repo_path": str(repo_path),
         "pm_brief": str(brief_path),
@@ -529,7 +615,11 @@ def _record_pm_intake(task: Dict[str, Any], description: str) -> Dict[str, str]:
         description or "No request description provided.",
     )
     commit_sha = commit_all(repo_path, "pm: capture incoming project request")
-    push_result = _sync_branch_to_remote(repo_path, current_branch(repo_path)) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    push_result = (
+        _sync_branch_to_remote(repo_path, current_branch(repo_path))
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
     return {
         "pm_intake": str(intake_path),
         "project_repo_path": str(repo_path),
@@ -538,14 +628,20 @@ def _record_pm_intake(task: Dict[str, Any], description: str) -> Dict[str, str]:
     }
 
 
-def _record_architecture_artifacts(task: Dict[str, Any], raw_output: str, tasks: List[Dict[str, Any]]) -> Dict[str, str]:
+def _record_architecture_artifacts(
+    task: Dict[str, Any], raw_output: str, tasks: List[Dict[str, Any]]
+) -> Dict[str, str]:
     repo_path = _ensure_project_scaffold(task, task.get("description", ""))
     run_git(repo_path, ["checkout", "main"])
 
     architecture_dir = repo_path / "documents" / "architecture"
     architecture_md = _next_version_path(architecture_dir, "architecture", ".md")
-    architecture_json = _next_version_path(architecture_dir, "architecture_tasks", ".json")
-    architecture_drawio = _next_version_path(architecture_dir, "architecture", ".drawio")
+    architecture_json = _next_version_path(
+        architecture_dir, "architecture_tasks", ".json"
+    )
+    architecture_drawio = _next_version_path(
+        architecture_dir, "architecture", ".drawio"
+    )
 
     _write_markdown(
         architecture_md,
@@ -554,15 +650,21 @@ def _record_architecture_artifacts(task: Dict[str, Any], raw_output: str, tasks:
     )
     _write_json(architecture_json, tasks)
     architecture_drawio.write_text(
-        "<mxfile host=\"app.diagrams.net\">\n"
-        f"  <diagram name=\"{_project_name(task)} architecture\">\n"
+        '<mxfile host="app.diagrams.net">\n'
+        f'  <diagram name="{_project_name(task)} architecture">\n'
         "    Placeholder diagram generated by AI Factory.\n"
         "  </diagram>\n"
         "</mxfile>\n"
     )
 
-    commit_sha = commit_all(repo_path, "architect: update versioned architecture documents")
-    push_result = _sync_branch_to_remote(repo_path, current_branch(repo_path)) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    commit_sha = commit_all(
+        repo_path, "architect: update versioned architecture documents"
+    )
+    push_result = (
+        _sync_branch_to_remote(repo_path, current_branch(repo_path))
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
     return {
         "project_repo_path": str(repo_path),
         "architecture_md": str(architecture_md),
@@ -585,7 +687,11 @@ def _record_architecture_request(task: Dict[str, Any]) -> Dict[str, str]:
         task.get("description", "") or "No architecture request description provided.",
     )
     commit_sha = commit_all(repo_path, "architect: capture architecture request")
-    push_result = _sync_branch_to_remote(repo_path, current_branch(repo_path)) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    push_result = (
+        _sync_branch_to_remote(repo_path, current_branch(repo_path))
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
     return {
         "architecture_request": str(request_path),
         "project_repo_path": str(repo_path),
@@ -613,7 +719,9 @@ def _build_dev_prompt(
     )
 
 
-def _prepare_task_branch(repo_path: Path, branch_name: str, attempt_number: int) -> None:
+def _prepare_task_branch(
+    repo_path: Path, branch_name: str, attempt_number: int
+) -> None:
     if attempt_number == 1 or not branch_exists(repo_path, branch_name):
         ensure_branch(repo_path, branch_name, base_branch="main")
         return
@@ -627,7 +735,9 @@ def _generate_dev_artifact(
     attempt_number: int,
     qa_feedback: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    repo_path = _ensure_project_scaffold(task, task.get("project_description", description))
+    repo_path = _ensure_project_scaffold(
+        task, task.get("project_description", description)
+    )
     branch_name = _task_branch(task)
     _prepare_task_branch(repo_path, branch_name, attempt_number)
     plan_artifacts = _record_agent_plan(
@@ -656,7 +766,9 @@ def _generate_dev_artifact(
     file_path.write_text(code)
 
     docs_dir = repo_path / "documents" / "pm"
-    task_doc = _next_version_path(docs_dir, f"task_{_task_slug(task)}_implementation", ".md")
+    task_doc = _next_version_path(
+        docs_dir, f"task_{_task_slug(task)}_implementation", ".md"
+    )
     _write_markdown(
         task_doc,
         f"Implementation: {_task_title(task)}",
@@ -667,7 +779,11 @@ def _generate_dev_artifact(
         repo_path,
         f"dev: implement {_task_slug(task)} attempt {attempt_number}",
     )
-    push_result = _sync_branch_to_remote(repo_path, branch_name) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    push_result = (
+        _sync_branch_to_remote(repo_path, branch_name)
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
 
     return {
         "task_id": task_id,
@@ -685,7 +801,9 @@ def _generate_dev_artifact(
     }
 
 
-def _summarize_qa_result(task_description: str, qa_logs: str, status: str) -> Dict[str, Any]:
+def _summarize_qa_result(
+    task_description: str, qa_logs: str, status: str
+) -> Dict[str, Any]:
     qa_summary_raw = call_llm(
         QA_SYSTEM_PROMPT,
         render_prompt(
@@ -716,7 +834,9 @@ def _summarize_qa_result(task_description: str, qa_logs: str, status: str) -> Di
     return qa_summary
 
 
-def _run_pytest(repo_path: Path, timeout_seconds: int = 120) -> subprocess.CompletedProcess:
+def _run_pytest(
+    repo_path: Path, timeout_seconds: int = 120
+) -> subprocess.CompletedProcess:
     python_path = _ensure_project_python_env(repo_path)
     return subprocess.run(
         [str(python_path), "-m", "pytest", str(repo_path), "-v"],
@@ -727,9 +847,16 @@ def _run_pytest(repo_path: Path, timeout_seconds: int = 120) -> subprocess.Compl
 
 
 def _run_qa_for_artifact(
-    task: Dict[str, Any], task_id: str, description: str, artifact: str | None, attempt_number: int, remaining_seconds: int | None = None
+    task: Dict[str, Any],
+    task_id: str,
+    description: str,
+    artifact: str | None,
+    attempt_number: int,
+    remaining_seconds: int | None = None,
 ) -> Dict[str, Any]:
-    repo_path = _ensure_project_scaffold(task, task.get("project_description", description))
+    repo_path = _ensure_project_scaffold(
+        task, task.get("project_description", description)
+    )
     branch_name = _task_branch(task)
     run_git(repo_path, ["checkout", branch_name])
     plan_artifacts = _record_agent_plan(
@@ -788,14 +915,29 @@ def _run_qa_for_artifact(
         f"## Branch\n`{branch_name}`\n\n## Attempt\n{attempt_number}\n\n## Status\n{status}\n\n## Logs\n```\n{qa_logs[:12000]}\n```",
     )
     _write_json(qa_json_path, summary)
-    commit_sha = commit_all(repo_path, f"qa: validate {_task_slug(task)} attempt {attempt_number}")
-    push_result = _sync_branch_to_remote(repo_path, branch_name) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    commit_sha = commit_all(
+        repo_path, f"qa: validate {_task_slug(task)} attempt {attempt_number}"
+    )
+    push_result = (
+        _sync_branch_to_remote(repo_path, branch_name)
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
 
     merge_commit = None
     merge_push_result = None
     if status == "success":
         run_git(repo_path, ["checkout", "main"])
-        run_git(repo_path, ["merge", "--no-ff", branch_name, "-m", f"merge: {_task_slug(task)} after qa approval"])
+        run_git(
+            repo_path,
+            [
+                "merge",
+                "--no-ff",
+                branch_name,
+                "-m",
+                f"merge: {_task_slug(task)} after qa approval",
+            ],
+        )
         merge_commit = run_git(repo_path, ["rev-parse", "HEAD"]).stdout.strip()
         merge_push_result = _sync_branch_to_remote(repo_path, "main")
 
@@ -816,7 +958,9 @@ def _run_qa_for_artifact(
     }
 
 
-def _normalize_task(task: Dict[str, Any], project_context: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_task(
+    task: Dict[str, Any], project_context: Dict[str, Any]
+) -> Dict[str, Any]:
     normalized = dict(task)
     normalized.setdefault("task_id", str(uuid.uuid4()))
     normalized["project_name"] = project_context["project_name"]
@@ -837,7 +981,9 @@ def _needs_recovery(results: List[Dict[str, Any]]) -> bool:
     return False
 
 
-def _build_recovery_request(initial_task: Dict[str, Any], results: List[Dict[str, Any]], cycle: int) -> Dict[str, Any]:
+def _build_recovery_request(
+    initial_task: Dict[str, Any], results: List[Dict[str, Any]], cycle: int
+) -> Dict[str, Any]:
     failures = [
         {
             "task_id": result.get("task_id"),
@@ -846,7 +992,8 @@ def _build_recovery_request(initial_task: Dict[str, Any], results: List[Dict[str
             "error": result.get("error"),
         }
         for result in results
-        if result.get("status") != "success" or result.get("qa", {}).get("status") not in {None, "success"}
+        if result.get("status") != "success"
+        or result.get("qa", {}).get("status") not in {None, "success"}
     ]
     return {
         **initial_task,
@@ -862,11 +1009,20 @@ def _build_recovery_request(initial_task: Dict[str, Any], results: List[Dict[str
 
 @activity.defn
 async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
+    task = _load_activity_input(task)
+    workflow_id = task.get("_workflow_id", "unknown")
+
+    LOGGER.info(
+        "[pm] Starting | workflow=%s | task_id=%s", workflow_id, task.get("task_id")
+    )
+
     description = task.get("description", "")
     project_name = _project_name(task)
     project_repo_path = _ensure_project_scaffold(task, description)
     intake_artifacts = _record_pm_intake(task, description)
 
+    LOGGER.info("[pm] Calling architect LLM for input | workflow=%s", workflow_id)
     architect_notes = call_llm(
         ARCHITECT_SYSTEM_PROMPT,
         render_prompt(
@@ -874,6 +1030,8 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             project_description=description,
         ),
     )
+
+    LOGGER.info("[pm] Calling analyst LLM for input | workflow=%s", workflow_id)
     analyst_notes = call_llm(
         ANALYST_SYSTEM_PROMPT,
         render_prompt(
@@ -883,6 +1041,7 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         ),
     )
 
+    LOGGER.info("[pm] Generating PM plan | workflow=%s", workflow_id)
     pm_output = call_llm(
         PM_SYSTEM_PROMPT,
         render_prompt(
@@ -895,7 +1054,15 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         plan = json.loads(pm_output)
+        LOGGER.info(
+            "[pm] Plan parsed | workflow=%s | tasks=%d",
+            workflow_id,
+            len(plan.get("execution_plan", [])),
+        )
     except json.JSONDecodeError:
+        LOGGER.warning(
+            "[pm] Plan not valid JSON, using fallback | workflow=%s", workflow_id
+        )
         plan = {
             "project_goal": description,
             "delivery_summary": pm_output,
@@ -913,9 +1080,11 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             ],
         }
 
-    artifact_paths = _record_pm_artifacts(task, description, plan, architect_notes, analyst_notes)
+    artifact_paths = _record_pm_artifacts(
+        task, description, plan, architect_notes, analyst_notes
+    )
 
-    return {
+    result = {
         "event_id": str(uuid.uuid4()),
         "task_id": task.get("task_id", str(uuid.uuid4())),
         "stage": "pm_done",
@@ -931,12 +1100,37 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "artifacts": {**intake_artifacts, **artifact_paths},
     }
 
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[pm] Completed | workflow=%s | duration=%dms | tasks_created=%d",
+        workflow_id,
+        duration_ms,
+        len(result.get("execution_plan", [])),
+    )
+
+    return _wrap_activity_result(workflow_id, "pm", result, start_time)
+
 
 @activity.defn
 async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
+    task = _load_activity_input(task)
+    workflow_id = task.get("_workflow_id", "unknown")
+
+    LOGGER.info(
+        "[architect] Starting | workflow=%s | task_id=%s",
+        workflow_id,
+        task.get("task_id"),
+    )
+
     description = task.get("description", "")
     request_artifacts = _record_architecture_request(task)
 
+    LOGGER.info(
+        "[architect] Generating task breakdown | workflow=%s | desc_len=%d",
+        workflow_id,
+        len(description),
+    )
     output = call_llm(
         ARCHITECT_SYSTEM_PROMPT,
         render_prompt(
@@ -948,6 +1142,18 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     fallback_tasks = _extract_tasks_from_spec(description)
     if len(fallback_tasks) > len(tasks):
         tasks = fallback_tasks
+        LOGGER.info(
+            "[architect] Using fallback tasks | workflow=%s | count=%d",
+            workflow_id,
+            len(tasks),
+        )
+    else:
+        LOGGER.info(
+            "[architect] Tasks defined | workflow=%s | count=%d",
+            workflow_id,
+            len(tasks),
+        )
+
     artifact_paths = _record_architecture_artifacts(task, output, tasks)
     project_context = {
         "project_name": _project_name(task),
@@ -956,7 +1162,7 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     }
     normalized_tasks = [_normalize_task(item, project_context) for item in tasks]
 
-    return {
+    result = {
         "event_id": str(uuid.uuid4()),
         "task_id": task.get("task_id", str(uuid.uuid4())),
         "stage": "architect_done",
@@ -966,9 +1172,30 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "artifacts": {**request_artifacts, **artifact_paths},
     }
 
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[architect] Completed | workflow=%s | duration=%dms | tasks=%d",
+        workflow_id,
+        duration_ms,
+        len(normalized_tasks),
+    )
+
+    return _wrap_activity_result(workflow_id, "architect", result, start_time)
+
 
 @activity.defn
 async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
+    task = _load_activity_input(task)
+    workflow_id = task.get("_workflow_id", "unknown")
+    recovery_cycle = task.get("recovery_cycle", 1)
+
+    LOGGER.info(
+        "[pm_recovery] Starting | workflow=%s | cycle=%d",
+        workflow_id,
+        recovery_cycle,
+    )
+
     description = task.get("description", "")
     architect_notes = call_llm(
         ARCHITECT_SYSTEM_PROMPT,
@@ -982,7 +1209,9 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         render_prompt(
             ANALYST_USER_PROMPT,
             current_state="",
-            event=json.dumps(task.get("failure_summary", []), indent=2, ensure_ascii=True),
+            event=json.dumps(
+                task.get("failure_summary", []), indent=2, ensure_ascii=True
+            ),
         ),
     )
     pm_output = call_llm(
@@ -1017,10 +1246,16 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         json.dumps(plan, indent=2, ensure_ascii=True),
     )
     _write_json(recovery_json, plan)
-    commit_sha = commit_all(repo_path, f"pm: recovery plan cycle {task.get('recovery_cycle', 1)}")
-    push_result = _sync_branch_to_remote(repo_path, current_branch(repo_path)) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    commit_sha = commit_all(
+        repo_path, f"pm: recovery plan cycle {task.get('recovery_cycle', 1)}"
+    )
+    push_result = (
+        _sync_branch_to_remote(repo_path, current_branch(repo_path))
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
 
-    return {
+    result = {
         "project_goal": plan.get("project_goal", description),
         "delivery_summary": plan.get("delivery_summary", ""),
         "architect_guidance": plan.get("architect_guidance", []),
@@ -1034,42 +1269,126 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         },
     }
 
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[pm_recovery] Completed | workflow=%s | cycle=%d | duration=%dms | tasks=%d",
+        workflow_id,
+        recovery_cycle,
+        duration_ms,
+        len(result.get("execution_plan", [])),
+    )
+
+    return _wrap_activity_result(
+        workflow_id, f"pm_recovery_{recovery_cycle}", result, start_time
+    )
+
 
 @activity.defn
 async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
+    task = _load_activity_input(task)
+    workflow_id = task.get("_workflow_id", "unknown")
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
+    attempt = int(task.get("attempt_number", 1))
 
-    return _generate_dev_artifact(
+    LOGGER.info(
+        "[dev] Starting | workflow=%s | task_id=%s | attempt=%d",
+        workflow_id,
+        task_id,
+        attempt,
+    )
+
+    result = _generate_dev_artifact(
         task=task,
         task_id=task_id,
         description=description,
-        attempt_number=int(task.get("attempt_number", 1)),
+        attempt_number=attempt,
         qa_feedback=task.get("qa_feedback"),
     )
+
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[dev] Completed | workflow=%s | task_id=%s | duration=%dms | artifact=%s",
+        workflow_id,
+        task_id,
+        duration_ms,
+        result.get("artifact", "none"),
+    )
+
+    return _wrap_activity_result(workflow_id, f"dev_{task_id}", result, start_time)
 
 
 @activity.defn
 async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
+    task = _load_activity_input(task)
+    workflow_id = task.get("_workflow_id", "unknown")
     task_id = task.get("task_id", str(uuid.uuid4()))
     artifact = task.get("artifact", "")
+    attempt = int(task.get("attempt_number", 1))
 
-    return _run_qa_for_artifact(
+    LOGGER.info(
+        "[qa] Starting | workflow=%s | task_id=%s | artifact=%s | attempt=%d",
+        workflow_id,
+        task_id,
+        artifact[:50] if artifact else "none",
+        attempt,
+    )
+
+    result = _run_qa_for_artifact(
         task,
         task_id,
         task.get("description", ""),
         artifact,
-        int(task.get("attempt_number", 1)),
+        attempt,
     )
+
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[qa] Completed | workflow=%s | task_id=%s | duration=%dms | status=%s",
+        workflow_id,
+        task_id,
+        duration_ms,
+        result.get("status", "unknown"),
+    )
+
+    return _wrap_activity_result(workflow_id, f"qa_{task_id}", result, start_time)
 
 
 @activity.defn
-async def analyst_activity(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def analyst_activity(input_data: Any) -> Dict[str, Any]:
+    start_time = datetime.now()
+    workflow_id = "unknown"
+    tasks: List[Dict[str, Any]] = []
+
+    if isinstance(input_data, dict):
+        tasks = input_data.get("dev_qa_results", input_data.get("_tasks", []))
+        workflow_id = input_data.get("_workflow_id", "unknown")
+        loaded_input = _load_activity_input(input_data)
+        tasks = loaded_input.get("dev_qa_results", loaded_input.get("_tasks", tasks))
+    elif isinstance(input_data, list):
+        tasks = input_data
+
+    LOGGER.info(
+        "[analyst] Starting | workflow=%s | tasks=%d",
+        workflow_id,
+        len(tasks) if tasks else 0,
+    )
+
     if not tasks:
-        return {"status": "skipped", "reason": "no tasks"}
+        LOGGER.info("[analyst] No tasks to analyze | workflow=%s", workflow_id)
+        return _wrap_activity_result(
+            workflow_id,
+            "analyst",
+            {"status": "skipped", "reason": "no tasks"},
+            start_time,
+        )
 
     first_task = tasks[0]
-    repo_path = _ensure_project_scaffold(first_task, first_task.get("project_description", ""))
+    repo_path = _ensure_project_scaffold(
+        first_task, first_task.get("project_description", "")
+    )
     run_git(repo_path, ["checkout", "main"])
     plan_artifacts = _record_agent_plan(
         repo_path,
@@ -1093,6 +1412,11 @@ async def analyst_activity(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
         ]
     )
 
+    LOGGER.info(
+        "[analyst] Generating project state | workflow=%s | tasks_summary_len=%d",
+        workflow_id,
+        len(tasks_summary),
+    )
     new_state = call_llm(
         ANALYST_SYSTEM_PROMPT,
         render_prompt(
@@ -1104,9 +1428,13 @@ async def analyst_activity(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     state_file.write_text(new_state)
     commit_sha = commit_all(repo_path, "analyst: update project state")
-    push_result = _sync_branch_to_remote(repo_path, current_branch(repo_path)) if commit_sha else {"ok": False, "stderr": "nothing to push"}
+    push_result = (
+        _sync_branch_to_remote(repo_path, current_branch(repo_path))
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
 
-    return {
+    result = {
         "status": "complete",
         "state": new_state,
         "artifact": str(state_file),
@@ -1116,17 +1444,45 @@ async def analyst_activity(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
         "plan": plan_artifacts,
     }
 
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[analyst] Completed | workflow=%s | duration=%dms",
+        workflow_id,
+        duration_ms,
+    )
+
+    return _wrap_activity_result(workflow_id, "analyst", result, start_time)
+
 
 @activity.defn
 async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
+    task = _load_activity_input(task)
+    workflow_id = task.get("_workflow_id", "unknown")
+
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
-    start_time = time.monotonic()
-    repo_path = _ensure_project_scaffold(task, task.get("project_description", description))
+    activity_start_time = time.monotonic()
+
+    LOGGER.info(
+        "[process_task] Starting | workflow=%s | task_id=%s",
+        workflow_id,
+        task_id,
+    )
+
+    repo_path = _ensure_project_scaffold(
+        task, task.get("project_description", description)
+    )
     previous_state = _load_task_state(repo_path, task_id)
 
     if previous_state and previous_state.get("status") == "success":
-        return previous_state.get("result", previous_state)
+        LOGGER.info(
+            "[process_task] Resuming from previous success | workflow=%s | task_id=%s",
+            workflow_id,
+            task_id,
+        )
+        result = previous_state.get("result", previous_state)
+        return _wrap_activity_result(workflow_id, f"task_{task_id}", result, start_time)
 
     healing_history: List[Dict[str, Any]] = []
     if previous_state and previous_state.get("healing_history"):
@@ -1157,7 +1513,12 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         },
     )
 
-    if _task_timed_out(start_time):
+    if _task_timed_out(activity_start_time):
+        LOGGER.warning(
+            "[process_task] Timed out before start | workflow=%s | task_id=%s",
+            workflow_id,
+            task_id,
+        )
         continuation = _record_continuation_plan(
             repo_path,
             "pm",
@@ -1176,8 +1537,10 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
             "continuation": continuation,
             "task_state_file": state_file,
         }
-        _save_task_state(repo_path, task_id, {"status": "needs_continuation", "result": result})
-        return result
+        _save_task_state(
+            repo_path, task_id, {"status": "needs_continuation", "result": result}
+        )
+        return _wrap_activity_result(workflow_id, f"task_{task_id}", result, start_time)
 
     next_attempt = 1
     qa_feedback = None
@@ -1185,6 +1548,12 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         next_attempt = int(previous_state.get("attempts", len(healing_history))) + 1
         qa_feedback = previous_state.get("last_qa_feedback")
 
+    LOGGER.info(
+        "[process_task] Running dev | workflow=%s | task_id=%s | attempt=%d",
+        workflow_id,
+        task_id,
+        next_attempt,
+    )
     dev_result = _generate_dev_artifact(
         task=task,
         task_id=task_id,
@@ -1192,15 +1561,23 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         attempt_number=next_attempt,
         qa_feedback=qa_feedback,
     )
+    LOGGER.info(
+        "[process_task] Running QA | workflow=%s | task_id=%s | attempt=%d",
+        workflow_id,
+        task_id,
+        next_attempt,
+    )
     qa_result = _run_qa_for_artifact(
         task,
         task_id,
         description,
         dev_result["artifact"],
         next_attempt,
-        remaining_seconds=_remaining_time_seconds(start_time),
+        remaining_seconds=_remaining_time_seconds(activity_start_time),
     )
-    healing_history.append({"attempt": next_attempt, "dev": dev_result, "qa": qa_result})
+    healing_history.append(
+        {"attempt": next_attempt, "dev": dev_result, "qa": qa_result}
+    )
     _save_task_state(
         repo_path,
         task_id,
@@ -1223,9 +1600,15 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
     while (
         qa_result.get("status") == "fail"
         and len(healing_history) <= MAX_SELF_HEALING_ATTEMPTS
-        and not _task_timed_out(start_time)
+        and not _task_timed_out(activity_start_time)
     ):
         next_attempt = len(healing_history) + 1
+        LOGGER.info(
+            "[process_task] Self-healing | workflow=%s | task_id=%s | attempt=%d",
+            workflow_id,
+            task_id,
+            next_attempt,
+        )
         autofix_feedback = {
             "previous_qa_status": qa_result.get("status"),
             "logs": qa_result.get("logs", ""),
@@ -1244,7 +1627,7 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
             description,
             dev_result["artifact"],
             next_attempt,
-            remaining_seconds=_remaining_time_seconds(start_time),
+            remaining_seconds=_remaining_time_seconds(activity_start_time),
         )
         healing_history.append(
             {"attempt": next_attempt, "dev": dev_result, "qa": qa_result}
@@ -1266,7 +1649,10 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
 
     continuation = None
     final_status = "success" if qa_result.get("status") == "success" else "fail"
-    if _task_timed_out(start_time):
+    if _task_timed_out(activity_start_time):
+        LOGGER.warning(
+            "[process_task] Timed out | workflow=%s | task_id=%s", workflow_id, task_id
+        )
         continuation = _record_continuation_plan(
             repo_path,
             "pm",
@@ -1296,17 +1682,63 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         "task_plan": task_plan,
     }
     _save_task_state(repo_path, task_id, {"status": final_status, "result": result})
-    return result
+
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[process_task] Completed | workflow=%s | task_id=%s | status=%s | attempts=%d | duration=%dms",
+        workflow_id,
+        task_id,
+        final_status,
+        len(healing_history),
+        duration_ms,
+    )
+
+    return _wrap_activity_result(workflow_id, f"task_{task_id}", result, start_time)
 
 
 @activity.defn
-async def process_all_tasks(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def process_all_tasks(input_data: Any) -> List[Dict[str, Any]]:
+    start_time = datetime.now()
+    tasks: List[Dict[str, Any]] = []
+    workflow_id = "unknown"
+
+    if isinstance(input_data, dict):
+        tasks = input_data.get("_tasks", [])
+        workflow_id = input_data.get("_workflow_id", "unknown")
+        loaded_input = _load_activity_input(input_data)
+        tasks = loaded_input.get("_tasks", tasks)
+    else:
+        tasks = input_data if isinstance(input_data, list) else []
+
+    LOGGER.info(
+        "[process_batch] Starting | workflow=%s | total_tasks=%d",
+        workflow_id,
+        len(tasks) if tasks else 0,
+    )
+
     results: List[Dict[str, Any]] = []
-    for task in tasks:
+    for i, task in enumerate(tasks or []):
         try:
-            results.append(await process_single_task(task))
+            task_result = await process_single_task(task)
+            results.append(task_result)
+            LOGGER.info(
+                "[process_batch] Task done | workflow=%s | progress=%d/%d | task_id=%s | status=%s",
+                workflow_id,
+                i + 1,
+                len(tasks),
+                task_result.get("task_id", "unknown"),
+                task_result.get("status", "unknown"),
+            )
         except Exception as exc:
-            repo_path = _ensure_project_scaffold(task, task.get("project_description", task.get("description", "")))
+            LOGGER.error(
+                "[process_batch] Task failed | workflow=%s | task_id=%s | error=%s",
+                workflow_id,
+                task.get("task_id", "unknown"),
+                str(exc),
+            )
+            repo_path = _ensure_project_scaffold(
+                task, task.get("project_description", task.get("description", ""))
+            )
             continuation = _record_continuation_plan(
                 repo_path,
                 "pm",
@@ -1334,4 +1766,15 @@ async def process_all_tasks(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                     "task_state_file": state_file,
                 }
             )
+
+    success_count = sum(1 for r in results if r.get("status") == "success")
+    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+    LOGGER.info(
+        "[process_batch] Completed | workflow=%s | total=%d | success=%d | duration=%dms",
+        workflow_id,
+        len(results),
+        success_count,
+        duration_ms,
+    )
+
     return results

@@ -10,6 +10,24 @@ Attempt:
 QA feedback:
 {qa_feedback}
 
+IMPORTANT IMPLEMENTATION RULES:
+
+1. ATOMIC IMPLEMENTATIONS:
+   - Implement ONE focused function or small class per task
+   - Keep files small (under 200 lines)
+   - Keep functions under 100 lines
+   - One concept per file
+
+2. IF TASK IS TOO LARGE:
+   - Focus on core functionality first
+   - Implement incrementally
+   - Return partial results rather than incomplete large implementations
+
+3. TESTABILITY:
+   - Code must be testable in isolation
+   - Include unit tests for core functionality
+   - Keep dependencies minimal
+
 Implementation requirements:
 - Deliver the requested code artifact
 - Respect dependencies and acceptance criteria if provided

@@ -7,6 +7,8 @@ from temporalio.client import Client
 
 from orchestrator.workflows import OrchestratorWorkflow
 
+GITHUB_PROJECT_URL = "https://github.com/alexeyban/reversi-alpha-zero"
+
 
 async def main():
     temporal_address = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
@@ -22,26 +24,45 @@ async def main():
 
     print(f"Connected to Temporal namespace: {temporal_namespace}")
 
+    description = f"""Develop and enhance the Reversi AlphaZero AI project: {GITHUB_PROJECT_URL}
+
+The project implements a self-learning Reversi (Othello) AI using AlphaZero-style reinforcement learning with Monte Carlo Tree Search (MCTS).
+
+Current capabilities:
+- Neural network-based policy and value networks
+- Self-play training pipeline
+- MCTS for game playing
+- GPU support for training
+
+Goals:
+- Improve the AI's strength and playing quality
+- Add new features (evaluation, analysis tools, GUI)
+- Optimize training speed and resource usage
+- Fix bugs and improve code quality
+- Add tests and documentation
+
+IMPORTANT: All development work should be done in the {GITHUB_PROJECT_URL} repository. Clone it first, then make all changes there."""
+
     await start_project(
-        client, task_queue, "Build REST API for todo app", temporal_namespace
+        client,
+        task_queue,
+        description,
+        temporal_namespace,
+        f"reversi-alpha-zero-{int(time.time())}",
     )
 
 
 async def start_project(
-    client: Client, task_queue: str, description: str, namespace: str
+    client: Client, task_queue: str, description: str, namespace: str, workflow_id: str
 ):
-    """Start a new project workflow"""
-    project_name = "todo-api"
-    timestamp = int(time.time())
-    workflow_id = f"project-{project_name}-{timestamp}"
-
-    print(f"Starting project workflow: {workflow_id}")
-    print(f"Description: {description}")
+    print(f"Starting workflow: {workflow_id}")
+    print(f"Project: {GITHUB_PROJECT_URL}")
 
     initial_task = {
         "task_id": workflow_id,
         "description": description,
-        "project_name": project_name,
+        "project_name": "reversi-alpha-zero",
+        "github_url": GITHUB_PROJECT_URL,
     }
 
     handle = await client.start_workflow(
@@ -49,7 +70,7 @@ async def start_project(
         initial_task,
         id=workflow_id,
         task_queue=task_queue,
-        execution_timeout=timedelta(minutes=30),
+        execution_timeout=timedelta(hours=2),
     )
 
     print(f"Workflow started: {workflow_id}")
@@ -58,7 +79,7 @@ async def start_project(
     )
 
     try:
-        result = await handle.result(rpc_timeout=timedelta(minutes=30))
+        result = await handle.result(rpc_timeout=timedelta(hours=2))
         print("Workflow completed successfully!")
         print(f"Result: {result}")
     except Exception as e:
