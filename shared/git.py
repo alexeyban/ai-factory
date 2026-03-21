@@ -1,6 +1,107 @@
+import os
+import re
 import subprocess
+from pathlib import Path
+from typing import Iterable
 
-def commit_and_push():
-    subprocess.run(["git", "add", "."])
-    subprocess.run(["git", "commit", "-m", "AI commit"])
-    subprocess.run(["git", "push"])
+
+DEFAULT_GIT_USER_NAME = os.getenv("AI_FACTORY_GIT_USER_NAME", "AI Factory Bot")
+DEFAULT_GIT_USER_EMAIL = os.getenv(
+    "AI_FACTORY_GIT_USER_EMAIL", "ai-factory@example.local"
+)
+DEFAULT_GITHUB_OWNER = os.getenv("GITHUB_OWNER", "alexeyban")
+
+
+def slugify(value: str, separator: str = "_") -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]+", separator, value.strip().lower())
+    normalized = re.sub(rf"{re.escape(separator)}+", separator, normalized)
+    normalized = normalized.strip(separator)
+    return normalized or "project"
+
+
+def run_git(repo_path: Path, args: Iterable[str], check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_path,
+        check=check,
+        capture_output=True,
+        text=True,
+    )
+
+
+def ensure_repo(repo_path: Path) -> None:
+    repo_path.mkdir(parents=True, exist_ok=True)
+    if not (repo_path / ".git").exists():
+        run_git(repo_path, ["init", "-b", "main"])
+    run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
+    run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+
+
+def ensure_branch(repo_path: Path, branch_name: str, base_branch: str = "main") -> None:
+    ensure_repo(repo_path)
+    run_git(repo_path, ["checkout", base_branch])
+    run_git(repo_path, ["checkout", "-B", branch_name, base_branch])
+
+
+def checkout_branch(repo_path: Path, branch_name: str) -> None:
+    ensure_repo(repo_path)
+    run_git(repo_path, ["checkout", branch_name])
+
+
+def branch_exists(repo_path: Path, branch_name: str) -> bool:
+    result = run_git(repo_path, ["rev-parse", "--verify", branch_name], check=False)
+    return result.returncode == 0
+
+
+def has_changes(repo_path: Path) -> bool:
+    status = run_git(repo_path, ["status", "--porcelain"], check=False)
+    return bool(status.stdout.strip())
+
+
+def commit_all(repo_path: Path, message: str) -> str | None:
+    ensure_repo(repo_path)
+    run_git(repo_path, ["add", "."])
+    if not has_changes(repo_path):
+        return None
+    run_git(repo_path, ["commit", "-m", message])
+    return run_git(repo_path, ["rev-parse", "HEAD"]).stdout.strip()
+
+
+def merge_branch(repo_path: Path, source_branch: str, target_branch: str = "main") -> str:
+    ensure_repo(repo_path)
+    run_git(repo_path, ["checkout", target_branch])
+    run_git(repo_path, ["merge", "--no-ff", source_branch, "-m", f"Merge {source_branch} into {target_branch}"])
+    return run_git(repo_path, ["rev-parse", "HEAD"]).stdout.strip()
+
+
+def ensure_origin_remote(repo_path: Path, project_name: str) -> str:
+    ensure_repo(repo_path)
+    repo_slug = slugify(project_name, separator="_")
+    remote_url = f"git@github.com:{DEFAULT_GITHUB_OWNER}/{repo_slug}.git"
+    remotes = run_git(repo_path, ["remote"], check=False).stdout.split()
+    if "origin" in remotes:
+        current_url = run_git(repo_path, ["remote", "get-url", "origin"], check=False).stdout.strip()
+        if current_url != remote_url:
+            run_git(repo_path, ["remote", "set-url", "origin", remote_url], check=False)
+    else:
+        run_git(repo_path, ["remote", "add", "origin", remote_url], check=False)
+    return remote_url
+
+
+def current_branch(repo_path: Path) -> str:
+    ensure_repo(repo_path)
+    return run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
+
+
+def push_branch(repo_path: Path, branch_name: str, remote: str = "origin") -> dict[str, str | int | bool]:
+    result = run_git(
+        repo_path,
+        ["push", "-u", remote, branch_name],
+        check=False,
+    )
+    return {
+        "ok": result.returncode == 0,
+        "returncode": result.returncode,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }

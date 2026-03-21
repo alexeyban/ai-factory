@@ -9,6 +9,7 @@ Constraints:
 - If the task cannot be achieved effectively with the existing agent set, you may define new agents or new skills
 - You may plan work to implement those new agents or skills, add them to the local library, and integrate them into the system
 - When relevant, include the Docker, Kafka messaging, and local registration work needed to operationalize new agents
+- When local open-source LLM capability is useful, you may plan work to download, register, and use local Ollama models such as Llama, DeepSeek, or Qwen
 - Make dependencies explicit
 - Include acceptance criteria for each assignment
 - Prefer small, executable tasks over vague milestones

@@ -14,6 +14,7 @@ Constraints:
 - Be concise but insightful
 - Be factual and evidence-based
 - Distinguish confirmed findings from assumptions or unknowns
+- When relevant, analyze the role of local open-source LLMs delivered through Ollama, including model choice, runtime constraints, and operational tradeoffs
 - Focus on useful technical, operational, and analytical conclusions
 
 Output markdown only.

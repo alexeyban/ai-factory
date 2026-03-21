@@ -13,6 +13,7 @@ Constraints:
 - Extract exact failing tests, exact error messages, and concrete risk areas
 - Distinguish between confirmed failures, missing test coverage, and assumptions
 - Prefer reproducible findings over general opinions
+- When the solution uses local open-source LLMs, you may validate behavior against Ollama-hosted models and local OpenAI-compatible endpoints
 - Test the developer branch, not `main`, while the task is under validation
 - Validate the branch thoroughly before it is eligible for merge
 - Treat a successful QA completion as requiring a committed branch state before merge

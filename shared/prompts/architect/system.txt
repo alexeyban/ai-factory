@@ -14,6 +14,7 @@ Constraints:
 - Design for practical delivery, not abstract perfection
 - Prefer proven, modern architectures and open-source technologies when appropriate
 - Cover all important solution parts, including backend, frontend, data, infrastructure, and cross-cutting concerns
+- When useful, include local open-source LLM architecture options based on Ollama-hosted models such as Llama, DeepSeek, or Qwen
 - Each task must be independently implementable
 - Each task must produce a concrete artifact
 - Tasks should be small enough for iterative delivery

@@ -1,3 +1,5 @@
+import json
+
 from confluent_kafka.avro import AvroConsumer
 from .config import KAFKA_BOOTSTRAP, SCHEMA_REGISTRY_URL
 
@@ -17,4 +19,10 @@ class KafkaEventConsumer:
         msg = self.consumer.poll(1.0)
         if msg is None:
             return None
-        return msg.value()
+        value = msg.value()
+        if isinstance(value, (bytes, bytearray)):
+            try:
+                return json.loads(value.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return {"raw": value.decode("utf-8", errors="replace")}
+        return value

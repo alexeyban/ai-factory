@@ -1,6 +1,8 @@
 import json
 import os
+import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -26,6 +28,12 @@ class LLMConfig:
 
 
 FALLBACK_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
+RATE_LIMIT_WINDOWS = {
+    "gemini": {"max_requests": 10, "window_seconds": 60},
+}
+_provider_request_times: dict[str, deque[float]] = {
+    provider: deque() for provider in RATE_LIMIT_WINDOWS
+}
 
 
 def _normalize_provider(value: Optional[str]) -> str:
@@ -36,12 +44,42 @@ def _normalize_provider(value: Optional[str]) -> str:
 
 def _normalize_model_name(provider: str, model: str) -> str:
     normalized = model.strip()
+    normalized_lower = normalized.lower()
 
     if provider == "opencode":
         if normalized == "opencode/bigpickle":
             return "big-pickle"
         if normalized == "bigpickle":
             return "big-pickle"
+        if normalized_lower in {"big-pickle", "opencode big pickle", "opencode/big-pickle"}:
+            return "big-pickle"
+
+    if provider == "openai":
+        if normalized_lower in {"gpt-5.4 mini", "gpt5.4mini", "gpt-5-mini", "gpt 5 mini"}:
+            return "gpt-5-mini"
+
+    if provider == "gemini":
+        if normalized_lower in {"gemini 3 flash", "gemini-3-flash", "gemini3flash"}:
+            return "gemini-2.5-flash"
+
+    if provider == "ollama":
+        ollama_aliases = {
+            "llama 4": "llama4:scout",
+            "llama4": "llama4:scout",
+            "llama-4": "llama4:scout",
+            "deepseek v4": "deepseek-v3",
+            "deepseek-v4": "deepseek-v3",
+            "deepseekv4": "deepseek-v3",
+            "qwen 3.5": "qwen3.5:35b-a3b",
+            "qwen3.5": "qwen3.5:35b-a3b",
+            "qwen-3.5": "qwen3.5:35b-a3b",
+        }
+        if normalized_lower in ollama_aliases:
+            return ollama_aliases[normalized_lower]
+
+    if provider == "deepseek":
+        if normalized_lower in {"deepseek v4", "deepseek-v4", "deepseekv4"}:
+            return "deepseek-chat"
 
     if "/" in normalized:
         model_provider, model_name = normalized.split("/", 1)
@@ -66,6 +104,7 @@ def _default_base_url(provider: str) -> Optional[str]:
         "openai": os.getenv("OPENAI_BASE_URL"),
         "opencode": "https://opencode.ai/zen/v1",
         "openrouter": "https://openrouter.ai/api/v1",
+        "deepseek": "https://api.deepseek.com",
         "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "ollama": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
     }
@@ -77,6 +116,7 @@ def _default_api_key(provider: str) -> Optional[str]:
         "openai": "OPENAI_API_KEY",
         "opencode": "OPENCODE_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "ollama": "OLLAMA_API_KEY",
     }
@@ -88,11 +128,12 @@ def _default_api_key(provider: str) -> Optional[str]:
 
 def _default_model_for_provider(provider: str) -> str:
     defaults = {
-        "openai": os.getenv("OPENAI_MODEL", "gpt-4.1"),
+        "openai": os.getenv("OPENAI_MODEL", "gpt-5-mini"),
         "opencode": os.getenv("OPENCODE_MODEL", "opencode/bigpickle"),
         "openrouter": os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
+        "deepseek": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        "ollama": os.getenv("OLLAMA_MODEL") or os.getenv("OLLANA_MODEL") or "llama3.2",
+        "ollama": os.getenv("OLLAMA_MODEL") or os.getenv("OLLANA_MODEL") or "llama4:scout",
     }
     return defaults.get(provider, os.getenv("LLM_MODEL", "gpt-4.1"))
 
@@ -115,7 +156,7 @@ def _build_fallback_chain(primary_provider: str) -> list[str]:
     if configured:
         ordered = [primary_provider, *configured]
     else:
-        ordered = [primary_provider, "gemini", "openai", "ollama"]
+        ordered = [primary_provider, "gemini", "openai", "deepseek", "ollama"]
 
     deduped: list[str] = []
     for provider in ordered:
@@ -189,18 +230,22 @@ def _request_with_fallback(
             timeout=timeout,
         )
         client = _create_client(config)
+        _wait_for_rate_limit_slot(fallback_provider)
         request_kwargs = {
             "model": config.model,
             "messages": messages,
-            "temperature": config.temperature,
         }
+        if _supports_custom_temperature(config.provider, config.model):
+            request_kwargs["temperature"] = config.temperature
         if config.max_tokens is not None:
             request_kwargs["max_tokens"] = config.max_tokens
 
         try:
             completion = client.chat.completions.create(**request_kwargs)
+            _record_provider_request(fallback_provider)
             return _extract_text_from_completion(completion)
         except Exception as exc:
+            _record_provider_request(fallback_provider)
             last_error = exc
             if not _is_retryable_llm_error(exc):
                 raise
@@ -209,6 +254,44 @@ def _request_with_fallback(
     if last_error:
         raise last_error
     raise RuntimeError("No LLM providers were available for the request")
+
+
+def _supports_custom_temperature(provider: str, model: str) -> bool:
+    model_name = model.lower()
+    if provider == "openai" and model_name.startswith(("gpt-5", "o1", "o3", "o4")):
+        return False
+    return True
+
+
+def _wait_for_rate_limit_slot(provider: str) -> None:
+    limits = RATE_LIMIT_WINDOWS.get(provider)
+    if not limits:
+        return
+
+    request_times = _provider_request_times.setdefault(provider, deque())
+    now = time.monotonic()
+    window_seconds = limits["window_seconds"]
+    while request_times and now - request_times[0] >= window_seconds:
+        request_times.popleft()
+
+    if len(request_times) < limits["max_requests"]:
+        return
+
+    wait_seconds = window_seconds - (now - request_times[0])
+    if wait_seconds > 0:
+        time.sleep(wait_seconds)
+
+    now = time.monotonic()
+    while request_times and now - request_times[0] >= window_seconds:
+        request_times.popleft()
+
+
+def _record_provider_request(provider: str) -> None:
+    if provider not in RATE_LIMIT_WINDOWS:
+        return
+    request_times = _provider_request_times.setdefault(provider, deque())
+    now = time.monotonic()
+    request_times.append(now)
 
 
 def load_llm_config(
@@ -465,8 +548,8 @@ def call_llm(
     )
     return _request_with_fallback(
         messages=_build_messages(system_prompt, user_prompt),
-        model=config.model if model is None else model,
-        provider=config.provider if provider is None else provider,
+        model=model,
+        provider=provider,
         api_key=api_key,
         base_url=base_url,
         temperature=temperature if temperature is not None else config.temperature,
@@ -501,8 +584,8 @@ def call_llm_with_messages(
     )
     return _request_with_fallback(
         messages=list(messages),
-        model=config.model if model is None else model,
-        provider=config.provider if provider is None else provider,
+        model=model,
+        provider=provider,
         api_key=api_key,
         base_url=base_url,
         temperature=temperature if temperature is not None else config.temperature,

@@ -5,6 +5,7 @@ WORKDIR /app
 # system deps
 RUN apt-get update && apt-get install -y \
     git \
+    openssh-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

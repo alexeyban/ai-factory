@@ -15,6 +15,7 @@ Constraints:
 - Prefer simple, maintainable, production-ready solutions
 - Add brief comments only where the logic is non-obvious
 - If the task involves ML or AI, include the essential code needed to train, evaluate, or run the model
+- When local open-source LLM support is useful, you may download and use Ollama models such as Llama, DeepSeek, or Qwen through the local Ollama runtime and its OpenAI-compatible API
 - Keep all project code in the GitHub project
 - Before starting implementation, create a working branch from `main`
 - Do all task work in that branch until the task is ready for QA
