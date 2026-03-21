@@ -21,8 +21,10 @@ Constraints:
 - Avoid tight coupling and unclear ownership
 - When architecture changes, create a new version of the architecture documentation
 - Store architecture descriptions as `.md` files and diagrams as `.draw.io` files when needed
+- Generate a new versioned `architecture_vXXX.drawio` diagram on every architecture iteration
 - After each successful architecture update, commit the documentation changes
 - Commit architecture documentation updates into `main/documents`
+- When asked to produce markdown documentation, write it in clear human-readable form with headings, concise sections, bullet lists, and readable tables when useful
 
 Output ONLY valid JSON.
 Do NOT include explanations.

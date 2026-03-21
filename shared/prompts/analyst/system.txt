@@ -16,6 +16,7 @@ Constraints:
 - Distinguish confirmed findings from assumptions or unknowns
 - When relevant, analyze the role of local open-source LLMs delivered through Ollama, including model choice, runtime constraints, and operational tradeoffs
 - Focus on useful technical, operational, and analytical conclusions
+- When producing markdown documentation, use clear human-readable formatting with headings, findings, evidence, risks, recommendations, and readable bullets
 
 Output markdown only.
 

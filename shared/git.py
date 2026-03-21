@@ -37,6 +37,12 @@ def ensure_repo(repo_path: Path) -> None:
     run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
 
 
+def has_commits(repo_path: Path) -> bool:
+    ensure_repo(repo_path)
+    result = run_git(repo_path, ["rev-parse", "--verify", "HEAD"], check=False)
+    return result.returncode == 0
+
+
 def ensure_branch(repo_path: Path, branch_name: str, base_branch: str = "main") -> None:
     ensure_repo(repo_path)
     run_git(repo_path, ["checkout", base_branch])
@@ -86,6 +92,29 @@ def ensure_origin_remote(repo_path: Path, project_name: str) -> str:
     else:
         run_git(repo_path, ["remote", "add", "origin", remote_url], check=False)
     return remote_url
+
+
+def bootstrap_from_remote(repo_path: Path, branch_name: str = "main", remote: str = "origin") -> bool:
+    ensure_repo(repo_path)
+    fetch_result = run_git(repo_path, ["fetch", remote, branch_name], check=False)
+    if fetch_result.returncode != 0:
+        return False
+
+    remote_ref = f"{remote}/{branch_name}"
+    if not has_commits(repo_path):
+        checkout_result = run_git(
+            repo_path,
+            ["checkout", "-B", branch_name, "FETCH_HEAD"],
+            check=False,
+        )
+        if checkout_result.returncode != 0:
+            return False
+    run_git(
+        repo_path,
+        ["branch", "--set-upstream-to", remote_ref, branch_name],
+        check=False,
+    )
+    return True
 
 
 def current_branch(repo_path: Path) -> str:

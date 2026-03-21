@@ -1,9 +1,11 @@
 import json
+import logging
 import os
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Optional
 
 from openai import APIConnectionError, APITimeoutError, APIStatusError, OpenAI, RateLimitError
@@ -14,6 +16,7 @@ def _env_flag(name: str, default: str = "false") -> bool:
 
 
 MOCK_MODE = _env_flag("MOCK_LLM")
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,9 +34,13 @@ FALLBACK_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 RATE_LIMIT_WINDOWS = {
     "gemini": {"max_requests": 10, "window_seconds": 60},
 }
+PROVIDER_COOLDOWN_SECONDS = int(os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(12 * 60 * 60)))
 _provider_request_times: dict[str, deque[float]] = {
     provider: deque() for provider in RATE_LIMIT_WINDOWS
 }
+_provider_cooldown_file = Path(
+    os.getenv("LLM_PROVIDER_COOLDOWN_FILE", "/tmp/ai_factory_llm_provider_cooldowns.json")
+)
 
 
 def _normalize_provider(value: Optional[str]) -> str:
@@ -204,6 +211,63 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
     return False
 
 
+def _load_provider_cooldowns() -> dict[str, float]:
+    if not _provider_cooldown_file.exists():
+        return {}
+    try:
+        raw = json.loads(_provider_cooldown_file.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    now = time.time()
+    return {
+        str(provider): float(until_ts)
+        for provider, until_ts in raw.items()
+        if isinstance(until_ts, (int, float)) and float(until_ts) > now
+    }
+
+
+def _save_provider_cooldowns(cooldowns: dict[str, float]) -> None:
+    _provider_cooldown_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {provider: until_ts for provider, until_ts in cooldowns.items() if until_ts > time.time()}
+    _provider_cooldown_file.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n")
+
+
+def _provider_cooldown_remaining(provider: str) -> float:
+    cooldowns = _load_provider_cooldowns()
+    return max(0.0, cooldowns.get(provider, 0.0) - time.time())
+
+
+def _mark_provider_rate_limited(provider: str, cooldown_seconds: int = PROVIDER_COOLDOWN_SECONDS) -> None:
+    cooldowns = _load_provider_cooldowns()
+    cooldowns[provider] = time.time() + cooldown_seconds
+    _save_provider_cooldowns(cooldowns)
+    LOGGER.warning(
+        "Provider %s entered cooldown for %s seconds after rate limit",
+        provider,
+        cooldown_seconds,
+    )
+
+
+def _clear_provider_cooldown(provider: str) -> None:
+    cooldowns = _load_provider_cooldowns()
+    if provider in cooldowns:
+        cooldowns.pop(provider, None)
+        _save_provider_cooldowns(cooldowns)
+        LOGGER.info("Provider %s cooldown cleared after successful response", provider)
+
+
+def _is_provider_on_cooldown(provider: str) -> bool:
+    return _provider_cooldown_remaining(provider) > 0
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitError):
+        return True
+    return isinstance(exc, APIStatusError) and exc.status_code == 429
+
+
 def _request_with_fallback(
     *,
     messages: list[dict[str, str]],
@@ -220,6 +284,13 @@ def _request_with_fallback(
     last_error: Exception | None = None
 
     for fallback_provider in fallback_chain:
+        if _is_provider_on_cooldown(fallback_provider):
+            LOGGER.info(
+                "Skipping provider %s because cooldown is active for another %.0f seconds",
+                fallback_provider,
+                _provider_cooldown_remaining(fallback_provider),
+            )
+            continue
         config = _config_for_provider(
             fallback_provider,
             model=model,
@@ -243,9 +314,12 @@ def _request_with_fallback(
         try:
             completion = client.chat.completions.create(**request_kwargs)
             _record_provider_request(fallback_provider)
+            _clear_provider_cooldown(fallback_provider)
             return _extract_text_from_completion(completion)
         except Exception as exc:
             _record_provider_request(fallback_provider)
+            if _is_rate_limit_error(exc):
+                _mark_provider_rate_limited(fallback_provider)
             last_error = exc
             if not _is_retryable_llm_error(exc):
                 raise
@@ -253,7 +327,7 @@ def _request_with_fallback(
 
     if last_error:
         raise last_error
-    raise RuntimeError("No LLM providers were available for the request")
+    raise RuntimeError("No LLM providers were available for the request; all candidates may be cooling down or unavailable")
 
 
 def _supports_custom_temperature(provider: str, model: str) -> bool:

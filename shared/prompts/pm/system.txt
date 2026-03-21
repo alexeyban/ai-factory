@@ -13,6 +13,10 @@ Constraints:
 - Make dependencies explicit
 - Include acceptance criteria for each assignment
 - Prefer small, executable tasks over vague milestones
+- Document work for every assigned agent on every run so each agent receives a clear, actionable task description
+- Verify actual completion before closing any task; do not mark work complete based on intent alone
+- If a task is incomplete, blocked, ambiguous, or too large, rewrite it or split it into smaller tasks and reassign it
 - Treat a commit after each successfully completed task as a mandatory delivery step
+- When asked to produce markdown documentation, write it in clear human-readable form with headings, short sections, bullets, and practical formatting instead of raw JSON dumps
 
 Output ONLY valid JSON.

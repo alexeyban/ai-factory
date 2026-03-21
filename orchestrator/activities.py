@@ -12,6 +12,7 @@ from temporalio import activity
 from temporalio.common import RetryPolicy
 
 from shared.git import (
+    bootstrap_from_remote,
     branch_exists,
     commit_all,
     current_branch,
@@ -142,6 +143,7 @@ def _ensure_project_scaffold(task: Dict[str, Any], description: str) -> Path:
     repo_path = _project_repo_path(task)
     ensure_repo(repo_path)
     ensure_origin_remote(repo_path, _project_name(task))
+    bootstrap_from_remote(repo_path)
 
     package_name = _project_package_name(task)
     package_dir = repo_path / package_name
@@ -273,6 +275,92 @@ def _write_markdown(path: Path, title: str, body: str) -> None:
     path.write_text(f"# {title}\n\n{body.strip()}\n")
 
 
+def _render_acceptance_criteria(criteria: List[str]) -> str:
+    if not criteria:
+        return "- Not specified"
+    return "\n".join(f"- {item}" for item in criteria)
+
+
+def _render_dependencies(dependencies: List[str]) -> str:
+    if not dependencies:
+        return "- None"
+    return "\n".join(f"- {item}" for item in dependencies)
+
+
+def _render_execution_plan_markdown(plan: Dict[str, Any]) -> str:
+    assignments = plan.get("execution_plan", [])
+    lines = [
+        "## Project Goal",
+        str(plan.get("project_goal", "Not specified")),
+        "",
+        "## Delivery Summary",
+        str(plan.get("delivery_summary", "Not specified")),
+        "",
+        "## Architect Guidance",
+    ]
+    architect_guidance = plan.get("architect_guidance", [])
+    lines.extend([f"- {item}" for item in architect_guidance] or ["- None"])
+    lines.extend(["", "## Analyst Guidance"])
+    analyst_guidance = plan.get("analyst_guidance", [])
+    lines.extend([f"- {item}" for item in analyst_guidance] or ["- None"])
+    lines.extend(["", "## Execution Plan"])
+
+    if not assignments:
+        lines.append("No assignments were produced.")
+        return "\n".join(lines)
+
+    for index, item in enumerate(assignments, start=1):
+        lines.extend(
+            [
+                f"### Task {index}: {item.get('title', item.get('task_id', 'Untitled Task'))}",
+                f"- Task ID: `{item.get('task_id', 'unknown')}`",
+                f"- Assigned Agent: `{item.get('assigned_agent', 'unassigned')}`",
+                "",
+                "#### Description",
+                str(item.get("description", "Not specified")),
+                "",
+                "#### Dependencies",
+                _render_dependencies(item.get("dependencies", [])),
+                "",
+                "#### Acceptance Criteria",
+                _render_acceptance_criteria(item.get("acceptance_criteria", [])),
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def _render_agent_assignments_markdown(plan: Dict[str, Any]) -> str:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for item in plan.get("execution_plan", []):
+        grouped.setdefault(item.get("assigned_agent", "unassigned"), []).append(item)
+
+    if not grouped:
+        return "## Agent Assignments\n\nNo assignments were produced."
+
+    lines = ["## Agent Assignments", ""]
+    for agent in sorted(grouped):
+        lines.extend([f"### {agent}", ""])
+        for item in grouped[agent]:
+            lines.extend(
+                [
+                    f"#### {item.get('title', item.get('task_id', 'Untitled Task'))}",
+                    f"- Task ID: `{item.get('task_id', 'unknown')}`",
+                    "",
+                    "Description:",
+                    str(item.get("description", "Not specified")),
+                    "",
+                    "Dependencies:",
+                    _render_dependencies(item.get("dependencies", [])),
+                    "",
+                    "Acceptance Criteria:",
+                    _render_acceptance_criteria(item.get("acceptance_criteria", [])),
+                    "",
+                ]
+            )
+    return "\n".join(lines).strip()
+
+
 def _task_state_path(repo_path: Path, task_id: str) -> Path:
     return repo_path / ".ai_factory" / "tasks" / f"{task_id}.json"
 
@@ -397,6 +485,7 @@ def _record_pm_artifacts(task: Dict[str, Any], description: str, plan: Dict[str,
     brief_path = _next_version_path(pm_dir, "project_brief", ".md")
     plan_md_path = _next_version_path(pm_dir, "delivery_plan", ".md")
     plan_json_path = _next_version_path(pm_dir, "delivery_plan", ".json")
+    assignments_md_path = _next_version_path(pm_dir, "agent_assignments", ".md")
 
     _write_markdown(
         brief_path,
@@ -406,7 +495,12 @@ def _record_pm_artifacts(task: Dict[str, Any], description: str, plan: Dict[str,
     _write_markdown(
         plan_md_path,
         f"Delivery Plan: {_project_name(task)}",
-        json.dumps(plan, indent=2, ensure_ascii=True),
+        _render_execution_plan_markdown(plan),
+    )
+    _write_markdown(
+        assignments_md_path,
+        f"Agent Assignments: {_project_name(task)}",
+        _render_agent_assignments_markdown(plan),
     )
     _write_json(plan_json_path, plan)
 
@@ -417,6 +511,7 @@ def _record_pm_artifacts(task: Dict[str, Any], description: str, plan: Dict[str,
         "pm_brief": str(brief_path),
         "pm_plan_md": str(plan_md_path),
         "pm_plan_json": str(plan_json_path),
+        "pm_agent_assignments_md": str(assignments_md_path),
         "pm_commit": commit_sha,
         "pm_push": json.dumps(push_result, ensure_ascii=True),
     }
@@ -859,6 +954,17 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "project_repo_path": artifact_paths["project_repo_path"],
         "project_description": description,
     }
+    normalized_tasks = [_normalize_task(item, project_context) for item in tasks]
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "task_id": task.get("task_id", str(uuid.uuid4())),
+        "stage": "architect_done",
+        "timestamp": int(time.time() * 1000),
+        "decision": "continue",
+        "tasks": normalized_tasks,
+        "artifacts": {**request_artifacts, **artifact_paths},
+    }
 
 
 @activity.defn
@@ -926,17 +1032,6 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             "commit": commit_sha,
             "push": push_result,
         },
-    }
-    normalized_tasks = [_normalize_task(item, project_context) for item in tasks]
-
-    return {
-        "event_id": str(uuid.uuid4()),
-        "task_id": task.get("task_id", str(uuid.uuid4())),
-        "stage": "architect_done",
-        "timestamp": int(time.time() * 1000),
-        "decision": "continue",
-        "tasks": normalized_tasks,
-        "artifacts": {**request_artifacts, **artifact_paths},
     }
 
 

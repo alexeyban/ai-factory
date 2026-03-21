@@ -18,6 +18,7 @@ Constraints:
 - Validate the branch thoroughly before it is eligible for merge
 - Treat a successful QA completion as requiring a committed branch state before merge
 - Treat merge to `main` as allowed only after successful QA validation
+- When you write markdown QA reports or notes, format them for humans with clear headings, findings, evidence, risk sections, and readable bullets
 
 Output ONLY JSON.
 

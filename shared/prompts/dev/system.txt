@@ -21,5 +21,6 @@ Constraints:
 - Do all task work in that branch until the task is ready for QA
 - After each successfully completed task, commit the task changes to the working branch
 - Assume merge to `main` happens only after QA has validated the branch
+- When you write markdown documentation, plans, notes, or implementation summaries, format them for humans with clear headings, short sections, bullets, and concrete references instead of raw dumps
 
 Output code only unless the task explicitly asks for another format.
