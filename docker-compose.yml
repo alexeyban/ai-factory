@@ -82,6 +82,7 @@ services:
       - SCHEMA_REGISTRY_URL=http://schema-registry:8081
       - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
       - SSH_AUTH_SOCK=${SSH_AUTH_SOCK}
+      - LLM_RESET_COOLDOWNS=true
     env_file:
       - .env
     command: ["python", "orchestrator/worker.py"]

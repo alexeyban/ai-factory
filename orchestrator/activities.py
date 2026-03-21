@@ -23,6 +23,7 @@ from shared.git import (
     push_branch,
     run_git,
     slugify,
+    get_or_create_project_path,
 )
 from shared.llm import call_llm
 from shared.prompts.loader import load_prompt, render_prompt
@@ -202,6 +203,15 @@ def _project_repo_path(task: Dict[str, Any]) -> Path:
     explicit_path = task.get("project_repo_path")
     if explicit_path:
         return Path(explicit_path)
+
+    github_url = task.get("github_url")
+    project_name = task.get("project_name") or _project_slug(task)
+
+    if github_url or project_name:
+        return get_or_create_project_path(
+            github_url=github_url, project_name=project_name
+        )
+
     return PROJECTS_ROOT / _project_slug(task)
 
 

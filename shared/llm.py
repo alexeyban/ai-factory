@@ -302,7 +302,19 @@ def _clear_provider_cooldown(provider: str) -> None:
         LOGGER.info("Provider %s cooldown cleared after successful response", provider)
 
 
+def _reset_all_cooldowns() -> None:
+    """Reset all provider cooldowns"""
+    cooldowns = _load_provider_cooldowns()
+    cooldowns.clear()
+    _save_provider_cooldowns(cooldowns)
+    LOGGER.info("All provider cooldowns reset")
+
+
 def _is_provider_on_cooldown(provider: str) -> bool:
+    if os.getenv("LLM_RESET_COOLDOWNS", "false").lower() == "true":
+        _reset_all_cooldowns()
+        os.environ.pop("LLM_RESET_COOLDOWNS", None)
+        return False
     return _provider_cooldown_remaining(provider) > 0
 
 
