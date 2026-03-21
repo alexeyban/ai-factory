@@ -4,6 +4,7 @@ from pathlib import Path
 from shared.messaging.kafka_producer import KafkaEventProducer
 from shared.messaging.kafka_consumer import KafkaEventConsumer
 from shared.llm import call_llm
+from shared.prompts.loader import load_prompt, render_prompt
 
 orchestrator_producer = KafkaEventProducer(
     "shared/messaging/schemas/orchestrator_event.avsc"
@@ -11,6 +12,8 @@ orchestrator_producer = KafkaEventProducer(
 consumer = KafkaEventConsumer("analyst.events", "analyst")
 
 STATE_FILE = Path("/workspace/project_state.md")
+SYSTEM_PROMPT = load_prompt("analyst", "system")
+USER_PROMPT = load_prompt("analyst", "user")
 
 while True:
     event = consumer.poll()
@@ -21,7 +24,12 @@ while True:
     if STATE_FILE.exists():
         state = STATE_FILE.read_text()
 
-    new_state = call_llm("Analyst", f"Update state:\n{state}\nEvent:\n{event}")
+    prompt = render_prompt(
+        USER_PROMPT,
+        current_state=state,
+        event=event,
+    )
+    new_state = call_llm(SYSTEM_PROMPT, prompt)
 
     STATE_FILE.write_text(new_state)
 

@@ -5,6 +5,7 @@ from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from orchestrator.activities import (
+        pm_activity,
         architect_activity,
         process_all_tasks,
         analyst_activity,
@@ -28,9 +29,30 @@ class OrchestratorWorkflow:
             f"Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')}"
         )
 
+        pm_result = await workflow.execute_activity(
+            pm_activity,
+            initial_task,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+
+        workflow.logger.info(
+            f"PM completed, generated {len(pm_result.get('execution_plan', []))} planned assignments"
+        )
+
+        architect_request = {
+            **initial_task,
+            "description": (
+                f"{initial_task.get('description', '')}\n\n"
+                f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
+                f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+            ),
+        }
+
         architect_result = await workflow.execute_activity(
             architect_activity,
-            initial_task,
+            architect_request,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
@@ -45,6 +67,7 @@ class OrchestratorWorkflow:
             workflow.logger.warning("No tasks returned from architect")
             return {
                 "status": "complete",
+                "pm_result": pm_result,
                 "architect_result": architect_result,
                 "dev_qa_results": [],
                 "analysis": {"status": "skipped", "reason": "no tasks"},
@@ -72,6 +95,7 @@ class OrchestratorWorkflow:
 
         return {
             "status": "complete",
+            "pm_result": pm_result,
             "architect_result": architect_result,
             "dev_qa_results": dev_qa_results,
             "analysis": analysis,
@@ -103,9 +127,23 @@ class ProjectWorkflow:
 
         workflow.logger.info(f"Starting project workflow: {project_name}")
 
+        pm_result = await workflow.execute_activity(
+            pm_activity,
+            initial_task,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+
         architect_result = await workflow.execute_activity(
             architect_activity,
-            initial_task,
+            {
+                **initial_task,
+                "description": (
+                    f"{description}\n\nPM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                    f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
+                    f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                ),
+            },
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
@@ -116,6 +154,7 @@ class ProjectWorkflow:
             return {
                 "status": "complete",
                 "project_name": project_name,
+                "pm_result": pm_result,
                 "dev_qa_results": [],
             }
 
@@ -134,6 +173,7 @@ class ProjectWorkflow:
         return {
             "status": "complete",
             "project_name": project_name,
+            "pm_result": pm_result,
             "architect_result": architect_result,
             "dev_qa_results": dev_qa_results,
             "analysis": analysis,

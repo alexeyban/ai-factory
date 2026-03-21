@@ -5,13 +5,13 @@ Task:
 {task_description}
 
 Return JSON:
-{
+{{
   "status": "success|fail",
   "failing_tests": ["..."],
   "error_summary": "...",
   "root_cause": "...",
   "fix_suggestion": "..."
-}
+}}
 
 If required data is missing, return:
-{"error": "insufficient data"}
+{{"error": "insufficient data"}}

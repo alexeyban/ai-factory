@@ -11,6 +11,7 @@ from temporalio import activity
 from temporalio.common import RetryPolicy
 
 from shared.llm import call_llm
+from shared.prompts.loader import load_prompt, render_prompt
 
 
 retry_policy = RetryPolicy(
@@ -20,18 +21,108 @@ retry_policy = RetryPolicy(
     maximum_attempts=3,
 )
 
+ARCHITECT_SYSTEM_PROMPT = load_prompt("architect", "system")
+ARCHITECT_USER_PROMPT = load_prompt("architect", "user")
+ANALYST_SYSTEM_PROMPT = load_prompt("analyst", "system")
+ANALYST_USER_PROMPT = load_prompt("analyst", "user")
+QA_SYSTEM_PROMPT = load_prompt("qa", "system")
+QA_USER_PROMPT = load_prompt("qa", "user")
+DEV_SYSTEM_PROMPT = load_prompt("dev", "system")
+DEV_USER_PROMPT = load_prompt("dev", "user")
+PM_SYSTEM_PROMPT = load_prompt("pm", "system")
+PM_USER_PROMPT = load_prompt("pm", "user")
+
+
+def _ensure_task_list(output: str) -> List[Dict[str, Any]]:
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        return [{"task_id": str(uuid.uuid4()), "description": output}]
+
+    if isinstance(parsed, list):
+        return parsed
+
+    return [{"task_id": str(uuid.uuid4()), "description": output}]
+
+
+@activity.defn
+async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Create an execution plan as a senior PM using architect and analyst input"""
+    description = task.get("description", "")
+
+    architect_notes = call_llm(
+        ARCHITECT_SYSTEM_PROMPT,
+        render_prompt(
+            ARCHITECT_USER_PROMPT,
+            project_description=description,
+        ),
+    )
+    analyst_notes = call_llm(
+        ANALYST_SYSTEM_PROMPT,
+        render_prompt(
+            ANALYST_USER_PROMPT,
+            current_state="",
+            event=description,
+        ),
+    )
+
+    pm_output = call_llm(
+        PM_SYSTEM_PROMPT,
+        render_prompt(
+            PM_USER_PROMPT,
+            task_description=description,
+            architect_input=architect_notes,
+            analyst_input=analyst_notes,
+        ),
+    )
+
+    try:
+        plan = json.loads(pm_output)
+    except json.JSONDecodeError:
+        plan = {
+            "project_goal": description,
+            "delivery_summary": pm_output,
+            "architect_guidance": [architect_notes],
+            "analyst_guidance": [analyst_notes],
+            "execution_plan": [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "title": "Implement requested work",
+                    "description": description or pm_output,
+                    "assigned_agent": "dev",
+                    "dependencies": [],
+                    "acceptance_criteria": ["Deliver the requested implementation"],
+                }
+            ],
+        }
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "task_id": task.get("task_id", str(uuid.uuid4())),
+        "stage": "pm_done",
+        "timestamp": int(time.time() * 1000),
+        "decision": "continue",
+        "project_goal": plan.get("project_goal", description),
+        "delivery_summary": plan.get("delivery_summary", ""),
+        "architect_guidance": plan.get("architect_guidance", []),
+        "analyst_guidance": plan.get("analyst_guidance", []),
+        "execution_plan": plan.get("execution_plan", []),
+    }
+
 
 @activity.defn
 async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     """Execute architect agent logic - decompose task into subtasks"""
     description = task.get("description", "")
 
-    output = call_llm("Architect", f"Break into tasks: {description}")
-
-    try:
-        tasks = json.loads(output)
-    except json.JSONDecodeError:
-        tasks = [{"task_id": str(uuid.uuid4()), "description": output}]
+    output = call_llm(
+        ARCHITECT_SYSTEM_PROMPT,
+        render_prompt(
+            ARCHITECT_USER_PROMPT,
+            project_description=description,
+        ),
+    )
+    tasks = _ensure_task_list(output)
 
     return {
         "event_id": str(uuid.uuid4()),
@@ -49,7 +140,14 @@ async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
 
-    code = call_llm("Senior dev", f"Implement: {description}")
+    code = call_llm(
+        DEV_SYSTEM_PROMPT,
+        render_prompt(
+            DEV_USER_PROMPT,
+            task_description=description,
+            task_context=task,
+        ),
+    )
 
     workspace = Path("/workspace")
     workspace.mkdir(exist_ok=True)
@@ -110,8 +208,12 @@ async def analyst_activity(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
 
     new_state = call_llm(
-        "Analyst",
-        f"Update project state based on these task results:\n{tasks_summary}\n\nCurrent state:\n{state}",
+        ANALYST_SYSTEM_PROMPT,
+        render_prompt(
+            ANALYST_USER_PROMPT,
+            current_state=state,
+            event=tasks_summary,
+        ),
     )
 
     state_file.write_text(new_state)
@@ -133,7 +235,14 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
     description = task.get("description", "")
 
     # Run dev
-    code = call_llm("Senior dev", f"Implement: {description}")
+    code = call_llm(
+        DEV_SYSTEM_PROMPT,
+        render_prompt(
+            DEV_USER_PROMPT,
+            task_description=description,
+            task_context=task,
+        ),
+    )
 
     workspace = Path("/workspace")
     workspace.mkdir(exist_ok=True)
@@ -155,10 +264,31 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
         timeout=60,
     )
 
+    qa_logs = result.stdout + result.stderr
+    qa_summary_raw = call_llm(
+        QA_SYSTEM_PROMPT,
+        render_prompt(
+            QA_USER_PROMPT,
+            test_logs=qa_logs,
+            task_description=description,
+        ),
+    )
+    try:
+        qa_summary = json.loads(qa_summary_raw)
+    except json.JSONDecodeError:
+        qa_summary = {
+            "status": "success" if result.returncode == 0 else "fail",
+            "failing_tests": [],
+            "error_summary": qa_summary_raw,
+            "root_cause": "",
+            "fix_suggestion": "",
+        }
+
     qa_result = {
         "task_id": task_id,
         "status": "success" if result.returncode == 0 else "fail",
-        "logs": result.stdout + result.stderr,
+        "logs": qa_logs,
+        "summary": qa_summary,
     }
 
     return {

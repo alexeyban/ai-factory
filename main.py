@@ -54,11 +54,11 @@ async def start_project(
 
     print(f"Workflow started: {workflow_id}")
     print(
-        f"Monitor at: http://localhost:7233/namespaces/{namespace}/workflows/{workflow_id}"
+        f"Monitor at: http://localhost:8088/namespaces/{namespace}/workflows/{workflow_id}"
     )
 
     try:
-        result = await handle.result(timeout=timedelta(minutes=30))
+        result = await handle.result(rpc_timeout=timedelta(minutes=30))
         print("Workflow completed successfully!")
         print(f"Result: {result}")
     except Exception as e:

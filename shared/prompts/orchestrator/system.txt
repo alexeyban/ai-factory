@@ -10,4 +10,4 @@ Constraints:
 Output ONLY JSON.
 
 If required data is missing, return:
-{"error": "insufficient data"}
+{{"error": "insufficient data"}}

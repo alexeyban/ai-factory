@@ -6,6 +6,7 @@ from temporalio.worker import Worker
 
 from orchestrator.workflows import OrchestratorWorkflow, ProjectWorkflow
 from orchestrator.activities import (
+    pm_activity,
     architect_activity,
     dev_activity,
     qa_activity,
@@ -49,6 +50,7 @@ async def run_worker():
         task_queue=task_queue,
         workflows=[OrchestratorWorkflow, ProjectWorkflow],
         activities=[
+            pm_activity,
             architect_activity,
             dev_activity,
             qa_activity,

@@ -51,6 +51,15 @@ services:
       - POSTGRES_PWD=temporal
     ports:
       - "7233:7233"
+
+  temporal-web:
+    image: temporalio/web:latest
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_GRPC_ENDPOINT=temporal:7233
+      - TEMPORAL_CORS_ORIGIN=http://localhost:8088
+    ports:
       - "8088:8088"
 
   orchestrator:
@@ -71,6 +80,18 @@ services:
     env_file:
       - .env
     command: ["python", "orchestrator/worker.py"]
+
+  pm_agent:
+    build:
+      context: .
+      dockerfile: agents/pm/Dockerfile
+    depends_on:
+      - kafka
+      - schema-registry
+    volumes:
+      - ./workspace:/workspace
+    env_file:
+      - .env
 
 volumes:
   postgres-data:

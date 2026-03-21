@@ -1,0 +1,10 @@
+Task:
+{task_description}
+
+Context:
+{task_context}
+
+Implementation requirements:
+- Deliver the requested code artifact
+- Respect dependencies and acceptance criteria if provided
+- Keep the result self-contained where possible

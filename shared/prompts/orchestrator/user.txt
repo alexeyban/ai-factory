@@ -8,10 +8,10 @@ Max retries:
 {max_retries}
 
 Return:
-{
+{{
   "decision": "continue|retry|fail|complete",
   "reason": "..."
-}
+}}
 
 If required data is missing, return:
-{"error": "insufficient data"}
+{{"error": "insufficient data"}}

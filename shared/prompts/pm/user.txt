@@ -1,0 +1,26 @@
+Task:
+{task_description}
+
+Architect input:
+{architect_input}
+
+Analyst input:
+{analyst_input}
+
+Return JSON object:
+{{
+  "project_goal": "...",
+  "delivery_summary": "...",
+  "architect_guidance": ["..."],
+  "analyst_guidance": ["..."],
+  "execution_plan": [
+    {{
+      "task_id": "...",
+      "title": "...",
+      "description": "...",
+      "assigned_agent": "architect|dev|qa|analyst",
+      "dependencies": [],
+      "acceptance_criteria": []
+    }}
+  ]
+}}

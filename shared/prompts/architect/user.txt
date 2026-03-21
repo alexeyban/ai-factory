@@ -8,11 +8,11 @@ Requirements:
 
 Return JSON array:
 [
-  {
+  {{
     "task_id": "...",
     "description": "...",
     "type": "feature|bugfix|refactor",
     "dependencies": [],
     "acceptance_criteria": []
-  }
+  }}
 ]

@@ -11,4 +11,4 @@ Update the state with:
 - Recommendations
 
 If required data is missing, return:
-{"error": "insufficient data"}
+{{"error": "insufficient data"}}
