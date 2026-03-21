@@ -1,0 +1,48 @@
+{
+  "type": "record",
+  "name": "BaseEvent",
+  "namespace": "ai.factory",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "task_id",
+      "type": "string"
+    },
+    {
+      "name": "stage",
+      "type": "string"
+    },
+    {
+      "name": "timestamp",
+      "type": "long"
+    },
+    {
+      "name": "schema_version",
+      "type": "int",
+      "default": 1
+    },
+    {
+      "name": "parent_event_id",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "retry_count",
+      "type": "int",
+      "default": 0
+    },
+    {
+      "name": "max_retries",
+      "type": "int",
+      "default": 3
+    },
+    {
+      "name": "error",
+      "type": ["null", "string"],
+      "default": null
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "type": "record",
+  "name": "AnalystEvent",
+  "namespace": "ai.factory",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "task_id", "type": "string"},
+    {"name": "stage", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+
+    {
+      "name": "summary",
+      "type": "string"
+    },
+    {
+      "name": "risks",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": []
+    },
+    {
+      "name": "next_steps",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": []
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "type": "record",
+  "name": "QAEvent",
+  "namespace": "ai.factory",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "task_id", "type": "string"},
+    {"name": "stage", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "QAStatus",
+        "symbols": ["success", "fail"]
+      }
+    },
+    {
+      "name": "test_results",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "coverage",
+      "type": ["null", "float"],
+      "default": null
+    }
+  ]
+}

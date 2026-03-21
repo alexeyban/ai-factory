@@ -1,0 +1,34 @@
+{
+  "type": "record",
+  "name": "DevEvent",
+  "namespace": "ai.factory",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "task_id", "type": "string"},
+    {"name": "stage", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+
+    {
+      "name": "artifact",
+      "type": "string"
+    },
+    {
+      "name": "language",
+      "type": "string",
+      "default": "python"
+    },
+    {
+      "name": "status",
+      "type": {
+        "type": "enum",
+        "name": "DevStatus",
+        "symbols": ["success", "fail"]
+      }
+    },
+    {
+      "name": "logs",
+      "type": ["null", "string"],
+      "default": null
+    }
+  ]
+}

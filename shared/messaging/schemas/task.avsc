@@ -1,0 +1,39 @@
+{
+  "type": "record",
+  "name": "Task",
+  "namespace": "ai.factory",
+  "fields": [
+    {
+      "name": "task_id",
+      "type": "string"
+    },
+    {
+      "name": "description",
+      "type": "string"
+    },
+    {
+      "name": "type",
+      "type": {
+        "type": "enum",
+        "name": "TaskType",
+        "symbols": ["feature", "bugfix", "refactor"]
+      }
+    },
+    {
+      "name": "dependencies",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": []
+    },
+    {
+      "name": "acceptance_criteria",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": []
+    }
+  ]
+}

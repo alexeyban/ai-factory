@@ -1,0 +1,45 @@
+{
+  "type": "record",
+  "name": "ArchitectEvent",
+  "namespace": "ai.factory",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "task_id",
+      "type": "string"
+    },
+    {
+      "name": "stage",
+      "type": "string"
+    },
+    {
+      "name": "timestamp",
+      "type": "long"
+    },
+    {
+      "name": "tasks",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "Task",
+          "fields": [
+            {"name": "task_id", "type": "string"},
+            {"name": "description", "type": "string"},
+            {
+              "name": "type",
+              "type": {
+                "type": "enum",
+                "name": "TaskType",
+                "symbols": ["feature", "bugfix", "refactor"]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

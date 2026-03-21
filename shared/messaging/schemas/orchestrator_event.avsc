@@ -1,0 +1,25 @@
+{
+  "type": "record",
+  "name": "OrchestratorEvent",
+  "namespace": "ai.factory",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "task_id", "type": "string"},
+    {"name": "stage", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+
+    {
+      "name": "decision",
+      "type": {
+        "type": "enum",
+        "name": "DecisionType",
+        "symbols": ["continue", "retry", "complete", "fail"]
+      }
+    },
+    {
+      "name": "reason",
+      "type": ["null", "string"],
+      "default": null
+    }
+  ]
+}
