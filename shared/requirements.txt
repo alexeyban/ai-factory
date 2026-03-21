@@ -2,3 +2,4 @@ confluent-kafka[avro]==2.3.0
 openai>=1.0.0
 pytest
 requests
+temporalio>=1.0.0

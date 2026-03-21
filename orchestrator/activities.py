@@ -1,13 +1,15 @@
-import time
-import uuid
+import asyncio
 import json
 import subprocess
-from pathlib import Path
-from typing import Dict, Any, List
+import time
+import uuid
 from datetime import timedelta
+from pathlib import Path
+from typing import Any, Dict, List
 
 from temporalio import activity
 from temporalio.common import RetryPolicy
+
 from shared.llm import call_llm
 
 
@@ -174,7 +176,4 @@ async def process_all_tasks(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         return_exceptions=True,
     )
 
-    return [r if not isinstance(r, Exception) else {"error": str(r)} for r in results]
-
-
-import asyncio
+    return [{"error": str(r)} if isinstance(r, Exception) else r for r in results]
