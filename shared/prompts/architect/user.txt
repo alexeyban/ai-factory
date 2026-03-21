@@ -2,9 +2,13 @@ Project description:
 {project_description}
 
 Requirements:
+- Design a complete solution architecture, not just a code breakdown
+- Consider backend, frontend, data, infrastructure, integrations, security, observability, and operations where relevant
+- Use modern frameworks, platforms, and open-source systems when they improve the solution
 - Define tasks with clear boundaries
 - Include acceptance criteria
 - Include dependencies
+- Include architecture-oriented tasks when needed, such as API design, data model design, infra setup, messaging, deployment, or UI architecture
 
 Return JSON array:
 [

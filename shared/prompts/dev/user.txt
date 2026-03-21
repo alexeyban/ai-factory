@@ -8,3 +8,6 @@ Implementation requirements:
 - Deliver the requested code artifact
 - Respect dependencies and acceptance criteria if provided
 - Keep the result self-contained where possible
+- If the task is about machine learning, AI, deep learning, or data science, implement the actual Python pipeline instead of describing it
+- Include model definitions, data processing, training, evaluation, and inference code when they are part of the requested scope
+- Use the most appropriate Python and ML libraries for the problem instead of avoiding them

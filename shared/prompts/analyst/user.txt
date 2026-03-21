@@ -9,6 +9,10 @@ Update the state with:
 - Detected issues
 - Risks
 - Recommendations
+- Observed patterns or anomalies
+- Data or evidence-based insights
+- Open questions, missing information, or ambiguous areas
+- Operational or architectural concerns if present
 
 If required data is missing, return:
 {{"error": "insufficient data"}}

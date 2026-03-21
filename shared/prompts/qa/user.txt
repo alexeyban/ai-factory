@@ -10,7 +10,16 @@ Return JSON:
   "failing_tests": ["..."],
   "error_summary": "...",
   "root_cause": "...",
-  "fix_suggestion": "..."
+  "fix_suggestion": "...",
+  "coverage_assessment": {{
+    "unit_tests": "covered|missing|unknown",
+    "integration_tests": "covered|missing|unknown",
+    "end_to_end_tests": "covered|missing|unknown"
+  }},
+  "quality_assessment": {{
+    "confidence": "high|medium|low",
+    "notes": "..."
+  }}
 }}
 
 If required data is missing, return:

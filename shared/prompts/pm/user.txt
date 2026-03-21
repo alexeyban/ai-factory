@@ -18,9 +18,16 @@ Return JSON object:
       "task_id": "...",
       "title": "...",
       "description": "...",
-      "assigned_agent": "architect|dev|qa|analyst",
+      "assigned_agent": "architect|dev|qa|analyst|pm|new_agent_name",
       "dependencies": [],
       "acceptance_criteria": []
     }}
   ]
 }}
+
+If the best way to complete the task is to extend the platform, you may include tasks to:
+- design and implement new agents
+- create new skills and add them to the local skill library
+- add Docker service definitions
+- define or connect Kafka topics/messages
+- register new capabilities in the local system
