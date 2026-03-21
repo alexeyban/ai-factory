@@ -1,98 +1,96 @@
 # AI Factory
 
-AI Factory is an experimental multi-agent software delivery pipeline built around Temporal workflows, Kafka-based agents, prompt-driven role definitions, and a shared LLM abstraction with provider fallback.
+AI Factory is a Temporal-based multi-agent software delivery system. It takes a project brief, creates a project repository, writes versioned delivery documents, decomposes work into agent tasks, generates code, runs QA, records project state, and keeps artifacts committed into a Git-backed project workspace.
 
-The project is designed to take a project brief, turn it into a structured execution plan, decompose the work, generate code, run QA, and summarize project state.
+The current implementation is focused on a practical local pipeline: Docker services, Temporal orchestration, prompt-driven agent roles, OpenAI-compatible LLM access with provider fallback, and generated project repositories under `workspace/projects/`.
 
-## Current Architecture
+## Current Flow
 
-The active orchestration path is Temporal-based:
+The active end-to-end path runs through the Temporal worker in [orchestrator/](/home/legion/PycharmProjects/ai-factory/orchestrator):
 
-1. `PM` activity creates a delivery plan.
-2. `Architect` activity decomposes the request into tasks.
-3. `Dev + QA` tasks run through a processing loop.
-4. `Analyst` summarizes outcomes and updates project state.
+1. `PM` captures the incoming request, creates a structured delivery plan, and writes agent assignments.
+2. `Architect` produces a versioned architecture package and task breakdown.
+3. `Dev` implements work in task branches.
+4. `QA` validates task branches and merges approved work into `main`.
+5. `Analyst` writes the current project state, risks, and recommendations.
+6. `PM recovery` can re-plan blocked work and split or reassign tasks.
 
-The repository also contains Kafka-oriented standalone agents (`architect`, `dev`, `qa`, `analyst`, `pm`), but the main end-to-end workflow currently runs through the Temporal worker in `orchestrator/`.
+The repo still contains Kafka-oriented standalone agents, but the primary working path is the Temporal workflow.
 
 ## Main Components
 
-- [main.py](/home/legion/PycharmProjects/ai-factory/main.py): simple workflow launcher.
-- [orchestrator/workflows.py](/home/legion/PycharmProjects/ai-factory/orchestrator/workflows.py): Temporal workflows.
-- [orchestrator/activities.py](/home/legion/PycharmProjects/ai-factory/orchestrator/activities.py): PM, architect, dev, QA, analyst, and self-healing task logic.
+- [main.py](/home/legion/PycharmProjects/ai-factory/main.py): simple local workflow launcher.
+- [orchestrator/workflows.py](/home/legion/PycharmProjects/ai-factory/orchestrator/workflows.py): Temporal workflow definitions and failure handling.
+- [orchestrator/activities.py](/home/legion/PycharmProjects/ai-factory/orchestrator/activities.py): PM, architect, dev, QA, analyst, recovery, continuation, git, and artifact logic.
 - [orchestrator/worker.py](/home/legion/PycharmProjects/ai-factory/orchestrator/worker.py): Temporal worker bootstrap.
-- [shared/llm.py](/home/legion/PycharmProjects/ai-factory/shared/llm.py): provider-agnostic LLM client with fallback support.
-- [shared/prompts](/home/legion/PycharmProjects/ai-factory/shared/prompts): role prompts for PM, architect, dev, QA, analyst, and orchestrator-related behavior.
+- [shared/llm.py](/home/legion/PycharmProjects/ai-factory/shared/llm.py): provider-agnostic LLM adapter with fallback, rate-limit awareness, and cooldown memory.
+- [shared/prompts](/home/legion/PycharmProjects/ai-factory/shared/prompts): prompt definitions for PM, architect, dev, QA, and analyst roles.
+- [shared/git.py](/home/legion/PycharmProjects/ai-factory/shared/git.py): generated project git initialization, remote setup, branch, commit, merge, and push helpers.
 - [docker-compose.yml](/home/legion/PycharmProjects/ai-factory/docker-compose.yml): local stack definition.
 
-## Workflow Behavior
+## Generated Project Behavior
 
-The current workflow implements these stages:
+Each generated project is created under [workspace/projects](/home/legion/PycharmProjects/ai-factory/workspace/projects). The pipeline currently:
 
-- `PM`
-  - creates a structured execution plan
-  - can propose new agents, skills, Docker wiring, and Kafka integration
-  - assumes GitHub is the system of record
+- initializes a git repository
+- connects it to a GitHub remote such as `git@github.com:alexeyban/<project>.git`
+- writes versioned PM documents, architecture documents, QA reports, analyst reports, plans, and continuation notes
+- commits and pushes those artifacts as the workflow progresses
+- uses task branches for implementation work and merges validated changes back to `main`
 
-- `Architect`
-  - acts as a solution architect
-  - covers backend, frontend, data, infrastructure, security, observability, and open-source system choices
-  - is instructed to version architecture docs in `main/documents`
+For architecture specifically, each iteration creates versioned `.md` and `.drawio` files.
 
-- `Dev`
-  - acts as a senior Python developer and senior data scientist
-  - is expected to generate production-oriented Python, ML, and AI code
-  - works in a branch from `main`
+## Agent Roles
 
-- `QA`
-  - acts as a senior automation QA engineer
-  - focuses on unit, integration, and end-to-end validation
-  - validates branch work before merge
+- `PM`: senior technical project manager who plans delivery, documents tasks for all agents, checks actual completion, and re-plans blocked or oversized work.
+- `Architect`: senior solution architect covering backend, frontend, data, AI/ML, infrastructure, messaging, security, and observability.
+- `Dev`: senior Python developer and senior data scientist focused on production Python, ML, and AI implementation.
+- `QA`: senior automation QA engineer responsible for impartial unit, integration, and end-to-end validation.
+- `Analyst`: senior system analyst and data analyst who summarizes delivery state, issues, patterns, risks, and recommendations.
 
-- `Analyst`
-  - acts as a system analyst and data analyst
-  - updates project state, risks, issues, patterns, and recommendations
+## Recovery And Continuation
 
-## Self-Healing Loop
+The orchestration layer includes several resilience mechanisms:
 
-The Temporal activity layer includes a self-healing loop between development and QA:
+- `Dev -> QA -> Dev` self-healing loop with structured QA feedback
+- PM-assisted recovery cycles for blocked or failed tasks
+- persisted task state in `.ai_factory/tasks`
+- continuation plans in `.ai_factory/continuations`
+- a 15-minute execution budget per individual task before continuation planning is written
+- non-retryable workflow failure on internal Python logic bugs such as `AttributeError` or `TypeError`
 
-- initial implementation is generated by `Dev`
-- QA runs against the generated artifact
-- if QA fails, structured QA feedback is passed back into `Dev`
-- `Dev` attempts an auto-fix
-- QA runs again
-- this repeats up to `DEV_QA_MAX_FIX_ATTEMPTS`
+## LLM Layer
 
-This logic is implemented in [orchestrator/activities.py](/home/legion/PycharmProjects/ai-factory/orchestrator/activities.py).
+The shared LLM adapter in [shared/llm.py](/home/legion/PycharmProjects/ai-factory/shared/llm.py) currently supports:
 
-## LLM Configuration
+- OpenAI-compatible chat completion calls
+- provider-specific model normalization
+- mock mode
+- fallback across providers
+- Gemini local rate limiting
+- 12-hour provider cooldown memory after provider-side rate-limit failures
 
-The project uses a shared LLM adapter in [shared/llm.py](/home/legion/PycharmProjects/ai-factory/shared/llm.py).
+Typical provider order is:
 
-Supported current behavior:
-
-- OpenAI-compatible API usage
-- provider/model selection through env vars
-- mock mode for offline testing
-- fallback to another provider when the current provider hits rate limits or similar transient failures
-
-Current configured provider order is intended to be:
-
-1. `opencode/bigpickle`
+1. `opencode`
 2. `gemini`
 3. `openai`
-4. `ollama`
+4. `deepseek`
+5. `ollama`
 
-Relevant env vars include:
+When a provider returns `429`, it is marked on cooldown and skipped for subsequent requests until the cooldown expires.
+
+Relevant environment variables include:
 
 - `MOCK_LLM`
 - `LLM_PROVIDER`
 - `LLM_MODEL`
 - `LLM_FALLBACK_ORDER`
+- `LLM_PROVIDER_COOLDOWN_SECONDS`
 - `OPENCODE_API_KEY`
 - `GEMINI_API_KEY`
 - `OPENAI_API_KEY`
+- `DEEPSEEK_API_KEY`
 - `OLLAMA_API_KEY` or `OLLANA_API_KEY`
 
 ## Local Stack
@@ -108,7 +106,7 @@ The default Docker stack includes:
 - Orchestrator worker
 - PM agent container
 
-Temporal Web UI is exposed at:
+Temporal Web UI:
 
 - `http://localhost:8088`
 
@@ -126,7 +124,7 @@ Check status:
 docker compose ps
 ```
 
-Run the simple launcher locally:
+Launch a local workflow manually:
 
 ```bash
 .venv/bin/python main.py
@@ -141,39 +139,24 @@ Smoke test the LLM adapter:
 Stop the stack:
 
 ```bash
-docker compose down
+docker compose down --remove-orphans
 ```
-
-## Repository Conventions
-
-The prompts currently instruct the agents to follow this operating model:
-
-- code lives in a GitHub project
-- development starts from a branch created from `main`
-- QA validates branch work before merge
-- successful task completion should be committed
-- architecture documentation should be versioned and committed
-
-## Workspace Output
-
-Generated artifacts are written into [workspace](/home/legion/PycharmProjects/ai-factory/workspace). This directory is intentionally ignored by git and acts as a local scratch/output area for generated files and project state snapshots.
 
 ## Current Limitations
 
-- The Kafka-based standalone agent path is not fully aligned with the Temporal-first path.
-- `pm_agent` currently needs additional cleanup in its Kafka message handling.
-- Real LLM execution can still fail because of provider-side quotas or rate limits.
-- The project does not yet implement full GitHub automation for repository creation, branching, merge, or documentation commits; those rules currently exist at the prompt/process level.
-- The generated code path is still a prototype and does not yet produce a full multi-file production repository layout by default.
+- The Kafka standalone agent path still lags behind the Temporal-first path.
+- Real LLM execution still depends on external provider quotas and availability.
+- Generated project delivery is functional but still experimental and not yet a production-grade autonomous software platform.
+- The generated code path is still inconsistent in how deeply it materializes full multi-file implementations for large projects.
 
 ## Purpose
 
-This repository is best understood as a prototype AI software factory:
+AI Factory is a practical prototype for autonomous, Git-backed software delivery:
 
-- prompt-defined agent roles
+- prompt-defined specialist agents
 - Temporal orchestration
+- resumable task execution
+- versioned documentation
 - LLM-backed planning and generation
-- QA feedback loops
-- evolving project conventions for Git-based delivery
-
-It is not yet a production-ready autonomous software platform, but it already provides a working base for experimenting with multi-agent software delivery workflows.
+- QA-driven correction loops
+- GitHub-oriented project delivery
