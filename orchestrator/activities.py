@@ -579,6 +579,20 @@ def _decompose_task(task: Dict[str, Any], project_context: str) -> List[Dict[str
         return [task]
 
 
+@activity.defn
+async def decomposer_activity(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+    task = _load_activity_input(task)
+    project_context = json.dumps(
+        {
+            "project_name": task.get("project_name"),
+            "project_repo_path": task.get("project_repo_path"),
+            "github_url": task.get("github_url"),
+        },
+        ensure_ascii=True,
+    )
+    return _decompose_task(task, project_context)
+
+
 def _expand_execution_plan(
     tasks: List[Dict[str, Any]], project_context: str
 ) -> List[Dict[str, Any]]:

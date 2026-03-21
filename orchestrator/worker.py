@@ -8,6 +8,7 @@ from orchestrator.workflows import OrchestratorWorkflow, ProjectWorkflow
 from orchestrator.activities import (
     pm_activity,
     architect_activity,
+    decomposer_activity,
     dev_activity,
     qa_activity,
     analyst_activity,
@@ -22,6 +23,7 @@ async def run_worker():
     temporal_address = os.getenv("TEMPORAL_ADDRESS", "temporal:7233")
     temporal_namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
     task_queue = os.getenv("TASK_QUEUE", "ai-factory-tasks")
+    client = None
 
     logging.info(f"Connecting to Temporal at {temporal_address}")
 
@@ -45,6 +47,9 @@ async def run_worker():
 
     logging.info(f"Starting worker on task queue: {task_queue}")
 
+    if client is None:
+        raise RuntimeError("Temporal client was not initialized")
+
     worker = Worker(
         client,
         task_queue=task_queue,
@@ -52,6 +57,7 @@ async def run_worker():
         activities=[
             pm_activity,
             architect_activity,
+            decomposer_activity,
             dev_activity,
             qa_activity,
             analyst_activity,
