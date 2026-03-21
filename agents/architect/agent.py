@@ -1,19 +1,36 @@
-from shared.kafka import create_consumer, create_producer
-from shared.llm import call_llm
+import time
+import uuid
 import json
+from shared.messaging.kafka_producer import KafkaEventProducer
+from shared.messaging.kafka_consumer import KafkaEventConsumer
+from shared.llm import call_llm
 
-consumer = create_consumer("architect.tasks", "architect")
-producer = create_producer()
+orchestrator_producer = KafkaEventProducer(
+    "shared/messaging/schemas/orchestrator_event.avsc"
+)
+consumer = KafkaEventConsumer("architect.tasks", "architect")
 
-for msg in consumer:
-    task = msg.value
+while True:
+    event = consumer.poll()
+    if not event:
+        continue
 
-    prompt = f"Break into tasks: {task['description']}"
+    prompt = f"Break into tasks: {event.get('description')}"
     output = call_llm("Architect", prompt)
 
-    tasks = json.loads(output)
+    try:
+        tasks = json.loads(output)
+    except json.JSONDecodeError:
+        tasks = [{"task_id": str(uuid.uuid4()), "description": output}]
 
-    producer.send("orchestrator.events", {
-        "stage": "architect_done",
-        "tasks": tasks
-    })
+    orchestrator_producer.send(
+        "orchestrator.events",
+        {
+            "event_id": str(uuid.uuid4()),
+            "task_id": event.get("task_id"),
+            "stage": "architect_done",
+            "timestamp": int(time.time() * 1000),
+            "decision": "continue",
+            "tasks": tasks,
+        },
+    )

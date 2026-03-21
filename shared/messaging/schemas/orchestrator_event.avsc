@@ -4,7 +4,7 @@
   "namespace": "ai.factory",
   "fields": [
     {"name": "event_id", "type": "string"},
-    {"name": "task_id", "type": "string"},
+    {"name": "task_id", "type": ["null", "string"], "default": null},
     {"name": "stage", "type": "string"},
     {"name": "timestamp", "type": "long"},
 
@@ -16,9 +16,20 @@
         "symbols": ["continue", "retry", "complete", "fail"]
       }
     },
+    {"name": "reason", "type": ["null", "string"], "default": null},
+    {"name": "artifact", "type": ["null", "string"], "default": null},
+    {"name": "status", "type": ["null", "string"], "default": null},
+    {"name": "logs", "type": ["null", "string"], "default": null},
     {
-      "name": "reason",
-      "type": ["null", "string"],
+      "name": "tasks",
+      "type": ["null", {"type": "array", "items": {
+        "type": "record",
+        "name": "TaskRef",
+        "fields": [
+          {"name": "task_id", "type": "string"},
+          {"name": "description", "type": "string"}
+        ]
+      }}],
       "default": null
     }
   ]

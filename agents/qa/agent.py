@@ -1,17 +1,30 @@
-from shared.kafka import create_consumer, create_producer
+import time
+import uuid
 import subprocess
+from shared.messaging.kafka_producer import KafkaEventProducer
+from shared.messaging.kafka_consumer import KafkaEventConsumer
 
-consumer = create_consumer("qa.tasks", "qa")
-producer = create_producer()
+orchestrator_producer = KafkaEventProducer(
+    "shared/messaging/schemas/orchestrator_event.avsc"
+)
+consumer = KafkaEventConsumer("qa.tasks", "qa")
 
-for msg in consumer:
-    task = msg.value
+while True:
+    event = consumer.poll()
+    if not event:
+        continue
 
     result = subprocess.run(["pytest", "/workspace"], capture_output=True)
 
-    producer.send("orchestrator.events", {
-        "stage": "qa_done",
-        "task": task,
-        "status": "success" if result.returncode == 0 else "fail",
-        "logs": result.stdout.decode()
-    })
+    orchestrator_producer.send(
+        "orchestrator.events",
+        {
+            "event_id": str(uuid.uuid4()),
+            "task_id": event.get("task_id"),
+            "stage": "qa_done",
+            "timestamp": int(time.time() * 1000),
+            "decision": "continue" if result.returncode == 0 else "retry",
+            "status": "success" if result.returncode == 0 else "fail",
+            "logs": result.stdout.decode(),
+        },
+    )

@@ -12,38 +12,12 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "9093:9092"
     environment:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-  orchestrator:
-    build: ./orchestrator
-    depends_on:
-      - kafka
-    env_file:
-      - .env
-
-  architect_agent:
-    build: ./agents/architect
-    depends_on:
-      - kafka
-
-  dev_agent:
-    build: ./agents/dev
-    depends_on:
-      - kafka
-
-  qa_agent:
-    build: ./agents/qa
-    depends_on:
-      - kafka
-
-  analyst_agent:
-    build: ./agents/analyst
-    depends_on:
-      - kafka
   schema-registry:
     image: confluentinc/cp-schema-registry:7.5.0
     depends_on:
@@ -51,5 +25,47 @@ services:
     ports:
       - "8081:8081"
     environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+
+  dev_agent:
+    build:
+      context: .
+      dockerfile: agents/dev/Dockerfile
+    depends_on:
+      - kafka
+    volumes:
+      - ./workspace:/workspace
+    env_file:
+      - .env
+
+  qa_agent:
+    build:
+      context: .
+      dockerfile: agents/qa/Dockerfile
+    depends_on:
+      - kafka
+    volumes:
+      - ./workspace:/workspace
+    env_file:
+      - .env
+
+  architect_agent:
+    build:
+      context: .
+      dockerfile: agents/architect/Dockerfile
+    depends_on:
+      - kafka
+    env_file:
+      - .env
+
+  analyst_agent:
+    build:
+      context: .
+      dockerfile: agents/analyst/Dockerfile
+    depends_on:
+      - kafka
+    volumes:
+      - ./workspace:/workspace
+    env_file:
+      - .env

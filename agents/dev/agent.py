@@ -1,8 +1,12 @@
+import time
+import uuid
 from shared.messaging.kafka_producer import KafkaEventProducer
 from shared.messaging.kafka_consumer import KafkaEventConsumer
 from shared.llm import call_llm
 
-producer = KafkaEventProducer("shared/messaging/schemas/dev_event.avsc")
+orchestrator_producer = KafkaEventProducer(
+    "shared/messaging/schemas/orchestrator_event.avsc"
+)
 consumer = KafkaEventConsumer("dev.tasks", "dev-group")
 
 while True:
@@ -10,7 +14,7 @@ while True:
     if not event:
         continue
 
-    task_id = event["task_id"]
+    task_id = event.get("task_id")
 
     code = call_llm("Senior dev", f"Implement {event}")
 
@@ -18,9 +22,14 @@ while True:
     with open(file_path, "w") as f:
         f.write(code)
 
-    producer.send("orchestrator.events", {
-        "event_id": "...",
-        "task_id": task_id,
-        "stage": "dev_done",
-        "artifact": file_path
-    })
+    orchestrator_producer.send(
+        "orchestrator.events",
+        {
+            "event_id": str(uuid.uuid4()),
+            "task_id": task_id,
+            "stage": "dev_done",
+            "timestamp": int(time.time() * 1000),
+            "decision": "continue",
+            "artifact": file_path,
+        },
+    )
