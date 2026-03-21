@@ -27,9 +27,15 @@ def slugify(value: str, separator: str = "_") -> str:
 def run_git(
     repo_path: Path, args: Iterable[str], check: bool = True
 ) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    if "GIT_SSH_COMMAND" in env:
+        env["GIT_SSH_COMMAND"] = os.getenv(
+            "GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no"
+        )
     return subprocess.run(
         ["git", *args],
         cwd=repo_path,
+        env=env,
         check=check,
         capture_output=True,
         text=True,
@@ -184,15 +190,32 @@ def clone_or_pull_project(
     if repo_path.exists() and (repo_path / ".git").exists():
         run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
         run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
-        run_git(repo_path, ["fetch", "origin"])
-        run_git(repo_path, ["pull", "origin", branch])
+        result = run_git(repo_path, ["rev-parse", "--verify", "HEAD"], check=False)
+        if result.returncode == 0:
+            run_git(repo_path, ["fetch", "origin"])
+            run_git(repo_path, ["pull", "origin", branch], check=False)
     else:
-        subprocess.run(
+        clone_env = os.environ.copy()
+        if "GIT_SSH_COMMAND" not in clone_env:
+            clone_env["GIT_SSH_COMMAND"] = os.getenv(
+                "GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no"
+            )
+
+        clone_result = subprocess.run(
             ["git", "clone", "--branch", branch, repo_url, str(repo_path)],
-            check=True,
+            env=clone_env,
             capture_output=True,
             text=True,
         )
+
+        if clone_result.returncode != 0:
+            clone_result = subprocess.run(
+                ["git", "clone", repo_url, str(repo_path)],
+                env=clone_env,
+                capture_output=True,
+                text=True,
+            )
+
         run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
         run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
 
