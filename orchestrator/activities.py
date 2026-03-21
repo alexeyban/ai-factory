@@ -1023,58 +1023,100 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task = _load_activity_input(task)
     workflow_id = task.get("_workflow_id", "unknown")
 
+    description = task.get("description", "")[:200]
+    project_name = _project_name(task)
+    github_url = task.get("github_url", "N/A")
+
+    LOGGER.info("=" * 80)
+    LOGGER.info("[PM AGENT] Starting project planning")
+    LOGGER.info("[PM AGENT] Workflow ID: %s", workflow_id)
+    LOGGER.info("[PM AGENT] Project: %s", project_name)
+    LOGGER.info("[PM AGENT] GitHub URL: %s", github_url)
     LOGGER.info(
-        "[pm] Starting | workflow=%s | task_id=%s", workflow_id, task.get("task_id")
+        "[PM AGENT] Task description: %s...",
+        description[:100] if description else "N/A",
+    )
+    LOGGER.info("=" * 80)
+
+    description_full = task.get("description", "")
+    project_repo_path = _ensure_project_scaffold(task, description_full)
+    LOGGER.info("[PM AGENT] Project repo ready at: %s", project_repo_path)
+
+    intake_artifacts = _record_pm_intake(task, description_full)
+    LOGGER.info(
+        "[PM AGENT] Intake artifacts recorded: %s", list(intake_artifacts.keys())
     )
 
-    description = task.get("description", "")
-    project_name = _project_name(task)
-    project_repo_path = _ensure_project_scaffold(task, description)
-    intake_artifacts = _record_pm_intake(task, description)
-
-    LOGGER.info("[pm] Calling architect LLM for input | workflow=%s", workflow_id)
+    LOGGER.info("[PM AGENT] Step 1/3: Calling Architect LLM to analyze requirements...")
+    architect_start = datetime.now()
     architect_notes = call_llm(
         ARCHITECT_SYSTEM_PROMPT,
         render_prompt(
             ARCHITECT_USER_PROMPT,
-            project_description=description,
+            project_description=description_full,
         ),
     )
+    LOGGER.info(
+        "[PM AGENT] Architect LLM completed in %ds | response length: %d chars",
+        (datetime.now() - architect_start).total_seconds(),
+        len(architect_notes),
+    )
 
-    LOGGER.info("[pm] Calling analyst LLM for input | workflow=%s", workflow_id)
+    LOGGER.info(
+        "[PM AGENT] Step 2/3: Calling Analyst LLM for current state analysis..."
+    )
+    analyst_start = datetime.now()
     analyst_notes = call_llm(
         ANALYST_SYSTEM_PROMPT,
         render_prompt(
             ANALYST_USER_PROMPT,
             current_state="",
-            event=description,
+            event=description_full,
         ),
     )
+    LOGGER.info(
+        "[PM AGENT] Analyst LLM completed in %ds | response length: %d chars",
+        (datetime.now() - analyst_start).total_seconds(),
+        len(analyst_notes),
+    )
 
-    LOGGER.info("[pm] Generating PM plan | workflow=%s", workflow_id)
+    LOGGER.info("[PM AGENT] Step 3/3: Generating execution plan...")
+    plan_start = datetime.now()
     pm_output = call_llm(
         PM_SYSTEM_PROMPT,
         render_prompt(
             PM_USER_PROMPT,
-            task_description=description,
+            task_description=description_full,
             architect_input=architect_notes,
             analyst_input=analyst_notes,
         ),
     )
+    LOGGER.info(
+        "[PM AGENT] PM LLM completed in %ds | response length: %d chars",
+        (datetime.now() - plan_start).total_seconds(),
+        len(pm_output),
+    )
 
     try:
         plan = json.loads(pm_output)
+        execution_plan = plan.get("execution_plan", [])
         LOGGER.info(
-            "[pm] Plan parsed | workflow=%s | tasks=%d",
-            workflow_id,
-            len(plan.get("execution_plan", [])),
+            "[PM AGENT] Plan parsed successfully | %d tasks planned",
+            len(execution_plan),
         )
+        for i, t in enumerate(execution_plan[:5]):
+            LOGGER.info(
+                "[PM AGENT]   Task %d: [%s] %s",
+                i + 1,
+                t.get("assigned_agent", "?"),
+                t.get("title", "?")[:60],
+            )
+        if len(execution_plan) > 5:
+            LOGGER.info("[PM AGENT]   ... and %d more tasks", len(execution_plan) - 5)
     except json.JSONDecodeError:
-        LOGGER.warning(
-            "[pm] Plan not valid JSON, using fallback | workflow=%s", workflow_id
-        )
+        LOGGER.warning("[PM AGENT] Plan not valid JSON, using fallback plan")
         plan = {
-            "project_goal": description,
+            "project_goal": description_full,
             "delivery_summary": pm_output,
             "architect_guidance": [architect_notes],
             "analyst_guidance": [analyst_notes],
@@ -1082,7 +1124,7 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
                 {
                     "task_id": str(uuid.uuid4()),
                     "title": "Implement requested work",
-                    "description": description or pm_output,
+                    "description": description_full or pm_output,
                     "assigned_agent": "dev",
                     "dependencies": [],
                     "acceptance_criteria": ["Deliver the requested implementation"],
