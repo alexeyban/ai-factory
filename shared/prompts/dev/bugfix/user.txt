@@ -1,0 +1,24 @@
+Original task:
+{original_task}
+
+Failing tests:
+{failing_tests}
+
+Error logs:
+{error_logs}
+
+Root cause:
+{root_cause}
+
+Current code:
+{code}
+
+Instructions:
+- Fix the bug
+- Keep changes minimal
+- Ensure tests pass
+
+Return full updated code.
+
+If required data is missing, return:
+{"error": "insufficient data"}

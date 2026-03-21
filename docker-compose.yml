@@ -28,44 +28,49 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
 
-  dev_agent:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  temporal:
+    image: temporalio/auto-setup:1.22.0
+    depends_on:
+      - postgres
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_SEEDS=postgres
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+    ports:
+      - "7233:7233"
+      - "8088:8088"
+
+  orchestrator:
     build:
       context: .
-      dockerfile: agents/dev/Dockerfile
+      dockerfile: orchestrator/Dockerfile
     depends_on:
+      - temporal
       - kafka
+      - schema-registry
     volumes:
       - ./workspace:/workspace
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
     env_file:
       - .env
+    command: ["python", "orchestrator/worker.py"]
 
-  qa_agent:
-    build:
-      context: .
-      dockerfile: agents/qa/Dockerfile
-    depends_on:
-      - kafka
-    volumes:
-      - ./workspace:/workspace
-    env_file:
-      - .env
-
-  architect_agent:
-    build:
-      context: .
-      dockerfile: agents/architect/Dockerfile
-    depends_on:
-      - kafka
-    env_file:
-      - .env
-
-  analyst_agent:
-    build:
-      context: .
-      dockerfile: agents/analyst/Dockerfile
-    depends_on:
-      - kafka
-    volumes:
-      - ./workspace:/workspace
-    env_file:
-      - .env
+volumes:
+  postgres-data:

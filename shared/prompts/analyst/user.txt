@@ -1,0 +1,14 @@
+Current project state:
+{current_state}
+
+New event:
+{event}
+
+Update the state with:
+- Progress summary
+- Detected issues
+- Risks
+- Recommendations
+
+If required data is missing, return:
+{"error": "insufficient data"}

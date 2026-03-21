@@ -1,0 +1,15 @@
+Task:
+{task_description}
+
+Acceptance criteria:
+{acceptance_criteria}
+
+Context (existing code if any):
+{existing_code}
+
+Requirements:
+- Write complete working code
+- Include necessary imports
+- Ensure code is testable
+
+Return ONLY code.

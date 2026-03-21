@@ -1,0 +1,17 @@
+Task status:
+{qa_result}
+
+Retry count:
+{retry_count}
+
+Max retries:
+{max_retries}
+
+Return:
+{
+  "decision": "continue|retry|fail|complete",
+  "reason": "..."
+}
+
+If required data is missing, return:
+{"error": "insufficient data"}

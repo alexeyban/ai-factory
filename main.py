@@ -1,54 +1,69 @@
-import uuid
-from shared.messaging.kafka_producer import KafkaEventProducer
-from shared.messaging.kafka_consumer import KafkaEventConsumer
+import asyncio
+import os
+import time
+from datetime import timedelta
 
-task_producer = KafkaEventProducer("shared/messaging/schemas/task.avsc")
-orchestrator_consumer = KafkaEventConsumer("orchestrator.events", "orchestrator")
+from temporalio.client import Client
+
+from orchestrator.workflows import OrchestratorWorkflow
 
 
-def start_project():
-    task_producer.send(
-        "architect.tasks",
-        {
-            "task_id": str(uuid.uuid4()),
-            "description": "Build REST API for todo app",
-        },
+async def main():
+    temporal_address = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
+    temporal_namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
+    task_queue = os.getenv("TASK_QUEUE", "ai-factory-tasks")
+
+    print(f"Connecting to Temporal at {temporal_address}")
+
+    client = await Client.connect(
+        temporal_address,
+        namespace=temporal_namespace,
+    )
+
+    print(f"Connected to Temporal namespace: {temporal_namespace}")
+
+    await start_project(
+        client, task_queue, "Build REST API for todo app", temporal_namespace
     )
 
 
-def run():
-    start_project()
+async def start_project(
+    client: Client, task_queue: str, description: str, namespace: str
+):
+    """Start a new project workflow"""
+    project_name = "todo-api"
+    timestamp = int(time.time())
+    workflow_id = f"project-{project_name}-{timestamp}"
 
-    pending_tasks = {}
+    print(f"Starting project workflow: {workflow_id}")
+    print(f"Description: {description}")
 
-    while True:
-        event = orchestrator_consumer.poll()
-        if not event:
-            continue
+    initial_task = {
+        "task_id": workflow_id,
+        "description": description,
+        "project_name": project_name,
+    }
 
-        stage = event.get("stage")
+    handle = await client.start_workflow(
+        OrchestratorWorkflow.run,
+        initial_task,
+        id=workflow_id,
+        task_queue=task_queue,
+        execution_timeout=timedelta(minutes=30),
+    )
 
-        if stage == "architect_done":
-            for task in event.get("tasks", []):
-                task_producer.send("dev.tasks", task)
-                pending_tasks[task["task_id"]] = task
+    print(f"Workflow started: {workflow_id}")
+    print(
+        f"Monitor at: http://localhost:7233/namespaces/{namespace}/workflows/{workflow_id}"
+    )
 
-        elif stage == "dev_done":
-            task_id = event.get("task_id")
-            task = pending_tasks.get(task_id, {})
-            task["artifact"] = event.get("artifact")
-            task_producer.send("qa.tasks", task)
-
-        elif stage == "qa_done":
-            task_id = event.get("task_id")
-            task = pending_tasks.get(task_id, {})
-            task["status"] = event.get("status")
-            task["logs"] = event.get("logs")
-            task_producer.send("analyst.events", task)
-
-        elif stage == "analysis_done":
-            print("Cycle complete")
+    try:
+        result = await handle.result(timeout=timedelta(minutes=30))
+        print("Workflow completed successfully!")
+        print(f"Result: {result}")
+    except Exception as e:
+        print(f"Workflow failed: {e}")
 
 
 if __name__ == "__main__":
-    run()
+    asyncio.run(main())
