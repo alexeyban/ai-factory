@@ -1,16 +1,22 @@
+import asyncio
+import json
 import os
 from datetime import timedelta
-from typing import Dict, Any, Mapping
+from typing import Dict, Any, Mapping, NoReturn
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
+
+from agents.decomposer.agent import estimate_tokens as estimate_task_tokens
+from agents.decomposer.agent import normalize_task_contract
 
 with workflow.unsafe.imports_passed_through():
     from orchestrator.activities import (
         pm_activity,
         pm_recovery_activity,
         architect_activity,
-        process_all_tasks,
+        decomposer_activity,
+        process_single_task,
         analyst_activity,
         MAX_PM_RECOVERY_CYCLES,
     )
@@ -20,9 +26,12 @@ LLM_ACTIVITY_TIMEOUT_MINUTES = int(
     os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30")
 )
 TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "6"))
+TASK_DECOMPOSITION_TOKEN_LIMIT = int(
+    os.getenv("TASK_DECOMPOSITION_TOKEN_LIMIT", "8000")
+)
 
 
-def _raise_non_retryable_python_failure(exc: Exception) -> None:
+def _raise_non_retryable_python_failure(exc: Exception) -> NoReturn:
     if isinstance(
         exc, (AttributeError, KeyError, IndexError, TypeError, AssertionError)
     ):
@@ -40,6 +49,146 @@ def _require_activity_result(name: str, result: Any) -> Dict[str, Any]:
     if not isinstance(result, Mapping):
         raise TypeError(f"{name} returned invalid result type: {type(result).__name__}")
     return dict(result)
+
+
+def _require_task_list(name: str, result: Any) -> list[Dict[str, Any]]:
+    if result is None:
+        raise RuntimeError(f"{name} returned no result")
+    if not isinstance(result, list):
+        raise TypeError(f"{name} returned invalid result type: {type(result).__name__}")
+
+    tasks: list[Dict[str, Any]] = []
+    for item in result:
+        if not isinstance(item, Mapping):
+            raise TypeError(f"{name} returned invalid task type: {type(item).__name__}")
+        tasks.append(dict(item))
+    return tasks
+
+
+def _project_context(
+    initial_task: Dict[str, Any], pm_result: Dict[str, Any] | None = None
+) -> Dict[str, Any]:
+    context = {
+        "project_name": initial_task.get("project_name")
+        or (pm_result or {}).get("project_name")
+        or initial_task.get("title")
+        or initial_task.get("task_id")
+        or "project",
+        "project_repo_path": (pm_result or {}).get(
+            "project_repo_path", initial_task.get("project_repo_path", "")
+        ),
+        "project_description": initial_task.get("description", ""),
+        "github_url": initial_task.get("github_url", ""),
+    }
+    return context
+
+
+def _normalize_tasks(
+    tasks: list[Dict[str, Any]], project_context: Dict[str, Any]
+) -> list[Dict[str, Any]]:
+    return [
+        normalize_task_contract(task, project_context=project_context)
+        for task in tasks
+        if isinstance(task, Mapping)
+    ]
+
+
+def _estimate_task_tokens(task: Dict[str, Any]) -> int:
+    return estimate_task_tokens(json.dumps(task, indent=2, ensure_ascii=True))
+
+
+async def _decompose_large_tasks(
+    tasks: list[Dict[str, Any]],
+    project_context: Dict[str, Any],
+    retry_policy: RetryPolicy,
+) -> list[Dict[str, Any]]:
+    expanded: list[Dict[str, Any]] = []
+    for task in tasks:
+        normalized_task = normalize_task_contract(task, project_context=project_context)
+        if _estimate_task_tokens(normalized_task) <= TASK_DECOMPOSITION_TOKEN_LIMIT:
+            expanded.append(normalized_task)
+            continue
+
+        decomposed = await workflow.execute_activity(
+            decomposer_activity,
+            {**project_context, **normalized_task},
+            start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+            retry_policy=retry_policy,
+        )
+        expanded.extend(
+            _normalize_tasks(
+                _require_task_list("decomposer_activity", decomposed), project_context
+            )
+        )
+
+    return expanded
+
+
+async def _prepare_execution_tasks(
+    tasks: list[Dict[str, Any]],
+    project_context: Dict[str, Any],
+    retry_policy: RetryPolicy,
+) -> list[Dict[str, Any]]:
+    normalized_tasks = _normalize_tasks(tasks, project_context)
+    return await _decompose_large_tasks(normalized_tasks, project_context, retry_policy)
+
+
+async def _dispatch_tasks(
+    tasks: list[Dict[str, Any]],
+    retry_policy: RetryPolicy,
+) -> list[Dict[str, Any]]:
+    """Dispatch each task as a separate Temporal activity and collect results.
+
+    Each task is executed concurrently via asyncio.gather so Temporal tracks
+    every task individually — with its own history, retries, and timeout.
+    return_exceptions=True ensures one failing task never cancels the others.
+    """
+    if not tasks:
+        return []
+
+    workflow_id = workflow.info().workflow_id
+    workflow.logger.info(
+        f"[{workflow_id}] Dispatching {len(tasks)} tasks to agents"
+    )
+
+    async def _run_one(task: Dict[str, Any]) -> Dict[str, Any]:
+        return await workflow.execute_activity(
+            process_single_task,
+            task,
+            start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
+            retry_policy=retry_policy,
+        )
+
+    raw = await asyncio.gather(*[_run_one(t) for t in tasks], return_exceptions=True)
+
+    results: list[Dict[str, Any]] = []
+    for i, outcome in enumerate(raw):
+        task_id = tasks[i].get("task_id", f"task_{i}")
+        if isinstance(outcome, BaseException):
+            workflow.logger.error(
+                f"[{workflow_id}] Task {task_id} raised: {outcome}"
+            )
+            results.append(
+                {
+                    "task_id": task_id,
+                    "project_name": tasks[i].get("project_name"),
+                    "project_repo_path": tasks[i].get("project_repo_path"),
+                    "status": "error",
+                    "error": str(outcome),
+                }
+            )
+        elif isinstance(outcome, Mapping):
+            results.append(dict(outcome))
+        else:
+            results.append(
+                {
+                    "task_id": task_id,
+                    "status": "error",
+                    "error": f"Unexpected result type: {type(outcome).__name__}",
+                }
+            )
+
+    return results
 
 
 @workflow.defn
@@ -109,6 +258,8 @@ class OrchestratorWorkflow:
             )
 
             tasks = architect_result.get("tasks", [])
+            project_context = _project_context(initial_task, pm_result)
+            tasks = await _prepare_execution_tasks(tasks, project_context, retry_policy)
 
             if not tasks:
                 workflow.logger.warning(
@@ -126,14 +277,9 @@ class OrchestratorWorkflow:
                 f"[{workflow_id}] Processing {len(tasks)} tasks in parallel"
             )
 
-            dev_qa_results = _require_activity_result(
-                "process_all_tasks",
-                await workflow.execute_activity(
-                    process_all_tasks,
-                    tasks,
-                    start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
-                    retry_policy=retry_policy,
-                ),
+            dev_qa_results = _require_task_list(
+                "_dispatch_tasks",
+                await _dispatch_tasks(tasks, retry_policy),
             )
 
             recovery_rounds = []
@@ -204,6 +350,11 @@ class OrchestratorWorkflow:
                 )
 
                 recovery_tasks = recovery_architect_result.get("tasks", [])
+                recovery_tasks = await _prepare_execution_tasks(
+                    recovery_tasks,
+                    _project_context(recovery_request, pm_recovery_result),
+                    retry_policy,
+                )
                 if not recovery_tasks:
                     recovery_rounds.append(
                         {
@@ -215,16 +366,9 @@ class OrchestratorWorkflow:
                     )
                     break
 
-                recovery_results = _require_activity_result(
-                    "process_all_tasks",
-                    await workflow.execute_activity(
-                        process_all_tasks,
-                        recovery_tasks,
-                        start_to_close_timeout=timedelta(
-                            hours=TASK_BATCH_TIMEOUT_HOURS
-                        ),
-                        retry_policy=retry_policy,
-                    ),
+                recovery_results = _require_task_list(
+                    "_dispatch_tasks",
+                    await _dispatch_tasks(recovery_tasks, retry_policy),
                 )
 
                 recovery_rounds.append(
@@ -344,6 +488,9 @@ class ProjectWorkflow:
             )
 
             tasks = architect_result.get("tasks", [])
+            tasks = await _prepare_execution_tasks(
+                tasks, _project_context(initial_task, pm_result), retry_policy
+            )
 
             if not tasks:
                 return {
@@ -353,14 +500,9 @@ class ProjectWorkflow:
                     "dev_qa_results": [],
                 }
 
-            dev_qa_results = _require_activity_result(
-                "process_all_tasks",
-                await workflow.execute_activity(
-                    process_all_tasks,
-                    tasks,
-                    start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
-                    retry_policy=retry_policy,
-                ),
+            dev_qa_results = _require_task_list(
+                "_dispatch_tasks",
+                await _dispatch_tasks(tasks, retry_policy),
             )
 
             recovery_rounds = []
@@ -423,6 +565,11 @@ class ProjectWorkflow:
                 )
 
                 recovery_tasks = recovery_architect_result.get("tasks", [])
+                recovery_tasks = await _prepare_execution_tasks(
+                    recovery_tasks,
+                    _project_context(recovery_request, pm_recovery_result),
+                    retry_policy,
+                )
                 if not recovery_tasks:
                     recovery_rounds.append(
                         {
@@ -434,16 +581,9 @@ class ProjectWorkflow:
                     )
                     break
 
-                recovery_results = _require_activity_result(
-                    "process_all_tasks",
-                    await workflow.execute_activity(
-                        process_all_tasks,
-                        recovery_tasks,
-                        start_to_close_timeout=timedelta(
-                            hours=TASK_BATCH_TIMEOUT_HOURS
-                        ),
-                        retry_policy=retry_policy,
-                    ),
+                recovery_results = _require_task_list(
+                    "_dispatch_tasks",
+                    await _dispatch_tasks(recovery_tasks, retry_policy),
                 )
 
                 recovery_rounds.append(

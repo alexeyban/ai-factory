@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from temporalio import activity
 from temporalio.common import RetryPolicy
 
+from agents.decomposer.agent import DecomposerAgent, normalize_task_contract
 from shared.git import (
     bootstrap_from_remote,
     branch_exists,
@@ -48,8 +49,7 @@ DEV_SYSTEM_PROMPT = load_prompt("dev", "system")
 DEV_USER_PROMPT = load_prompt("dev", "user")
 PM_SYSTEM_PROMPT = load_prompt("pm", "system")
 PM_USER_PROMPT = load_prompt("pm", "user")
-DECOMPOSER_SYSTEM_PROMPT = load_prompt("decomposer", "system")
-DECOMPOSER_USER_PROMPT = load_prompt("decomposer", "user")
+DECOMPOSER_AGENT = DecomposerAgent()
 MAX_SELF_HEALING_ATTEMPTS = int(os.getenv("DEV_QA_MAX_FIX_ATTEMPTS", "2"))
 MAX_PM_RECOVERY_CYCLES = int(os.getenv("PM_MAX_RECOVERY_CYCLES", "2"))
 MAX_TASK_EXECUTION_SECONDS = int(os.getenv("MAX_TASK_EXECUTION_SECONDS", "900"))
@@ -138,7 +138,21 @@ def _ensure_task_list(output: str) -> List[Dict[str, Any]]:
     if isinstance(parsed, list):
         return parsed
 
+    if isinstance(parsed, dict):
+        if isinstance(parsed.get("tasks"), list):
+            return parsed["tasks"]
+        if isinstance(parsed.get("execution_plan"), list):
+            return parsed["execution_plan"]
+
     return [{"task_id": str(uuid.uuid4()), "description": output}]
+
+
+def _normalize_task_list(
+    tasks: List[Dict[str, Any]], project_context: Dict[str, Any] | None = None
+) -> List[Dict[str, Any]]:
+    return [
+        _normalize_task(task, project_context=project_context or {}) for task in tasks
+    ]
 
 
 def _extract_tasks_from_spec(description: str) -> List[Dict[str, Any]]:
@@ -562,21 +576,11 @@ def _remaining_time_seconds(start_time: float) -> int:
 
 
 def _estimate_tokens(text: str) -> int:
-    return max(0, (len(text) + 3) // 4)
+    return DECOMPOSER_AGENT.estimate_tokens(text)
 
 
 def _decompose_task(task: Dict[str, Any], project_context: str) -> List[Dict[str, Any]]:
-    payload = render_prompt(
-        DECOMPOSER_USER_PROMPT,
-        task_description=json.dumps(task, indent=2, ensure_ascii=True),
-        project_context=project_context,
-    )
-    raw = call_llm(DECOMPOSER_SYSTEM_PROMPT, payload)
-    try:
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, list) else [task]
-    except json.JSONDecodeError:
-        return [task]
+    return DECOMPOSER_AGENT.decompose(task, project_context=project_context)
 
 
 @activity.defn
@@ -590,7 +594,7 @@ async def decomposer_activity(task: Dict[str, Any]) -> List[Dict[str, Any]]:
         },
         ensure_ascii=True,
     )
-    return _decompose_task(task, project_context)
+    return _normalize_task_list(_decompose_task(task, project_context), task)
 
 
 def _expand_execution_plan(
@@ -1018,11 +1022,16 @@ def _run_qa_for_artifact(
 def _normalize_task(
     task: Dict[str, Any], project_context: Dict[str, Any]
 ) -> Dict[str, Any]:
-    normalized = dict(task)
+    context = dict(project_context or {})
+    context.setdefault("project_name", task.get("project_name") or _project_name(task))
+    context.setdefault("project_repo_path", task.get("project_repo_path", ""))
+    context.setdefault("project_description", task.get("project_description", ""))
+
+    normalized = normalize_task_contract(task, project_context=context)
     normalized.setdefault("task_id", str(uuid.uuid4()))
-    normalized["project_name"] = project_context["project_name"]
-    normalized["project_repo_path"] = project_context["project_repo_path"]
-    normalized["project_description"] = project_context["project_description"]
+    normalized["project_name"] = context.get("project_name", "project")
+    normalized["project_repo_path"] = context.get("project_repo_path", "")
+    normalized["project_description"] = context.get("project_description", "")
     return normalized
 
 
@@ -1144,34 +1153,15 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         len(pm_output),
     )
 
+    project_context = {
+        "project_name": project_name,
+        "github_url": github_url,
+        "project_repo_path": str(project_repo_path),
+        "project_description": description_full,
+    }
+
     try:
         plan = json.loads(pm_output)
-        execution_plan = plan.get("execution_plan", [])
-        execution_plan = _expand_execution_plan(
-            execution_plan,
-            json.dumps(
-                {
-                    "project_name": project_name,
-                    "github_url": github_url,
-                    "project_repo_path": str(project_repo_path),
-                },
-                ensure_ascii=True,
-            ),
-        )
-        plan["execution_plan"] = execution_plan
-        LOGGER.info(
-            "[PM AGENT] Plan parsed successfully | %d tasks planned",
-            len(execution_plan),
-        )
-        for i, t in enumerate(execution_plan[:5]):
-            LOGGER.info(
-                "[PM AGENT]   Task %d: [%s] %s",
-                i + 1,
-                t.get("assigned_agent", "?"),
-                t.get("title", "?")[:60],
-            )
-        if len(execution_plan) > 5:
-            LOGGER.info("[PM AGENT]   ... and %d more tasks", len(execution_plan) - 5)
     except json.JSONDecodeError:
         LOGGER.warning("[PM AGENT] Plan not valid JSON, using fallback plan")
         plan = {
@@ -1190,6 +1180,26 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
                 }
             ],
         }
+
+    execution_plan = plan.get("execution_plan", [])
+    execution_plan = _expand_execution_plan(
+        execution_plan,
+        json.dumps(project_context, ensure_ascii=True),
+    )
+    plan["execution_plan"] = _normalize_task_list(execution_plan, project_context)
+    LOGGER.info(
+        "[PM AGENT] Plan parsed successfully | %d tasks planned",
+        len(execution_plan),
+    )
+    for i, t in enumerate(execution_plan[:5]):
+        LOGGER.info(
+            "[PM AGENT]   Task %d: [%s] %s",
+            i + 1,
+            t.get("assigned_agent", "?"),
+            t.get("title", "?")[:60],
+        )
+    if len(execution_plan) > 5:
+        LOGGER.info("[PM AGENT]   ... and %d more tasks", len(execution_plan) - 5)
 
     artifact_paths = _record_pm_artifacts(
         task, description, plan, architect_notes, analyst_notes
@@ -1270,8 +1280,9 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "project_name": _project_name(task),
         "project_repo_path": artifact_paths["project_repo_path"],
         "project_description": description,
+        "github_url": task.get("github_url", ""),
     }
-    normalized_tasks = [_normalize_task(item, project_context) for item in tasks]
+    normalized_tasks = _normalize_task_list(tasks, project_context)
 
     result = {
         "event_id": str(uuid.uuid4()),
@@ -1345,6 +1356,16 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             "analyst_guidance": [analyst_notes],
             "execution_plan": _extract_tasks_from_spec(description),
         }
+
+    project_context = {
+        "project_name": _project_name(task),
+        "project_repo_path": str(_project_repo_path(task)),
+        "project_description": description,
+        "github_url": task.get("github_url", ""),
+    }
+    plan["execution_plan"] = _normalize_task_list(
+        plan.get("execution_plan", []), project_context
+    )
 
     repo_path = _ensure_project_scaffold(task, description)
     run_git(repo_path, ["checkout", "main"])
@@ -1570,6 +1591,18 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
     start_time = datetime.now()
     task = _load_activity_input(task)
     workflow_id = task.get("_workflow_id", "unknown")
+
+    task = _normalize_task(
+        task,
+        {
+            "project_name": task.get("project_name") or _project_name(task),
+            "project_repo_path": str(_project_repo_path(task)),
+            "project_description": task.get(
+                "project_description", task.get("description", "")
+            ),
+            "github_url": task.get("github_url", ""),
+        },
+    )
 
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
@@ -1809,83 +1842,17 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
 
 @activity.defn
 async def process_all_tasks(input_data: Any) -> List[Dict[str, Any]]:
-    start_time = datetime.now()
-    tasks: List[Dict[str, Any]] = []
-    workflow_id = "unknown"
+    """Legacy stub — no longer called by OrchestratorWorkflow or ProjectWorkflow.
 
-    if isinstance(input_data, dict):
-        tasks = input_data.get("_tasks", [])
-        workflow_id = input_data.get("_workflow_id", "unknown")
-        loaded_input = _load_activity_input(input_data)
-        tasks = loaded_input.get("_tasks", tasks)
-    else:
-        tasks = input_data if isinstance(input_data, list) else []
+    Task dispatch has been promoted to the workflow tier: the workflow now calls
+    workflow.execute_activity(process_single_task, task) for each task in
+    parallel via asyncio.gather (see _dispatch_tasks in workflows.py).
 
-    LOGGER.info(
-        "[process_batch] Starting | workflow=%s | total_tasks=%d",
-        workflow_id,
-        len(tasks) if tasks else 0,
+    This activity remains registered so in-flight workflow histories that
+    reference it can still replay without errors.
+    """
+    LOGGER.warning(
+        "[process_batch] process_all_tasks is a legacy stub and should not be "
+        "invoked by new workflow executions — dispatch is now handled by the workflow."
     )
-
-    results: List[Dict[str, Any]] = []
-    for i, task in enumerate(tasks or []):
-        try:
-            task_result = await process_single_task(task)
-            results.append(task_result)
-            LOGGER.info(
-                "[process_batch] Task done | workflow=%s | progress=%d/%d | task_id=%s | status=%s",
-                workflow_id,
-                i + 1,
-                len(tasks),
-                task_result.get("task_id", "unknown"),
-                task_result.get("status", "unknown"),
-            )
-        except Exception as exc:
-            LOGGER.error(
-                "[process_batch] Task failed | workflow=%s | task_id=%s | error=%s",
-                workflow_id,
-                task.get("task_id", "unknown"),
-                str(exc),
-            )
-            repo_path = _ensure_project_scaffold(
-                task, task.get("project_description", task.get("description", ""))
-            )
-            continuation = _record_continuation_plan(
-                repo_path,
-                "pm",
-                task,
-                f"Task processing failed with exception: {exc}",
-                {"error": str(exc)},
-            )
-            state_file = _save_task_state(
-                repo_path,
-                task.get("task_id", str(uuid.uuid4())),
-                {
-                    "status": "error",
-                    "error": str(exc),
-                    "continuation": continuation,
-                },
-            )
-            results.append(
-                {
-                    "task_id": task.get("task_id", str(uuid.uuid4())),
-                    "project_name": task.get("project_name"),
-                    "project_repo_path": task.get("project_repo_path"),
-                    "status": "error",
-                    "error": str(exc),
-                    "continuation": continuation,
-                    "task_state_file": state_file,
-                }
-            )
-
-    success_count = sum(1 for r in results if r.get("status") == "success")
-    duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-    LOGGER.info(
-        "[process_batch] Completed | workflow=%s | total=%d | success=%d | duration=%dms",
-        workflow_id,
-        len(results),
-        success_count,
-        duration_ms,
-    )
-
-    return results
+    return []
