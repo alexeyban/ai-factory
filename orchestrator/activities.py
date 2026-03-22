@@ -17,6 +17,7 @@ from shared.git import (
     bootstrap_from_remote,
     branch_exists,
     commit_all,
+    create_and_merge_github_pr,
     current_branch,
     ensure_branch,
     ensure_origin_remote,
@@ -1019,20 +1020,42 @@ def _run_qa_for_artifact(
 
     merge_commit = None
     merge_push_result = None
+    pr_url = None
     if status == "success":
-        run_git(repo_path, ["checkout", "main"])
-        run_git(
+        # Ensure task branch is on remote before creating PR
+        if not push_result.get("ok"):
+            push_result = _sync_branch_to_remote(repo_path, branch_name)
+
+        pr_result = create_and_merge_github_pr(
             repo_path,
-            [
-                "merge",
-                "--no-ff",
-                branch_name,
-                "-m",
-                f"merge: {_task_slug(task)} after qa approval",
-            ],
+            branch_name,
+            title=f"feat: {_task_slug(task)} (QA approved)",
+            body=f"Automated merge after QA approval for task `{task.get('task_id', '')}`.",
         )
-        merge_commit = run_git(repo_path, ["rev-parse", "HEAD"]).stdout.strip()
-        merge_push_result = _sync_branch_to_remote(repo_path, "main")
+
+        if pr_result.get("ok"):
+            pr_url = pr_result.get("pr_url")
+            merge_commit = pr_result.get("merge_commit")
+            LOGGER.info("[qa] PR merged via GitHub API: %s", pr_url)
+            run_git(repo_path, ["checkout", "main"], check=False)
+            run_git(repo_path, ["pull", "origin", "main"], check=False)
+            run_git(repo_path, ["branch", "-d", branch_name], check=False)
+            merge_push_result = {"ok": True, "transport": "github_api"}
+        else:
+            LOGGER.warning(
+                "[qa] GitHub PR failed (%s), falling back to local merge",
+                pr_result.get("error"),
+            )
+            run_git(repo_path, ["checkout", "main"])
+            run_git(
+                repo_path,
+                ["merge", "--no-ff", branch_name, "-m",
+                 f"merge: {_task_slug(task)} after qa approval"],
+            )
+            merge_commit = run_git(repo_path, ["rev-parse", "HEAD"]).stdout.strip()
+            merge_push_result = _sync_branch_to_remote(repo_path, "main")
+            run_git(repo_path, ["push", "origin", "--delete", branch_name], check=False)
+            run_git(repo_path, ["branch", "-d", branch_name], check=False)
 
     return {
         "task_id": task_id,
@@ -1044,6 +1067,7 @@ def _run_qa_for_artifact(
         "push": push_result,
         "merge_commit": merge_commit,
         "merge_push": merge_push_result,
+        "pr_url": pr_url,
         "qa_report_md": str(qa_md_path),
         "qa_report_json": str(qa_json_path),
         "project_repo_path": str(repo_path),

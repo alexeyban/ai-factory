@@ -175,6 +175,100 @@ def current_branch(repo_path: Path) -> str:
     return run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
 
 
+def _github_api_token() -> str | None:
+    token = os.getenv("GITHUB_TOKEN")
+    if (
+        token
+        and len(token) >= 20
+        and " " not in token
+        and not token.lower().startswith("your")
+        and not token.lower().startswith("ghp_your")
+    ):
+        return token
+    return None
+
+
+def _github_repo_slug(repo_path: Path) -> tuple[str, str] | None:
+    result = run_git(repo_path, ["remote", "get-url", "origin"], check=False)
+    url = result.stdout.strip()
+    m = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", url)
+    if m:
+        return m.group(1), m.group(2)
+    return None
+
+
+def create_and_merge_github_pr(
+    repo_path: Path,
+    branch_name: str,
+    title: str,
+    body: str = "",
+    base: str = "main",
+) -> dict:
+    """Create a GitHub PR for branch_name → base, merge it, and delete the branch.
+
+    Returns {"ok": bool, "pr_url": str|None, "merge_commit": str|None, "error": str|None}.
+    Returns ok=False (no exception) when no token or not a GitHub remote.
+    """
+    import requests
+
+    token = _github_api_token()
+    if not token:
+        return {"ok": False, "pr_url": None, "merge_commit": None, "error": "no valid GITHUB_TOKEN"}
+
+    slug = _github_repo_slug(repo_path)
+    if not slug:
+        return {"ok": False, "pr_url": None, "merge_commit": None, "error": "remote is not github.com"}
+
+    owner, repo = slug
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    api = f"https://api.github.com/repos/{owner}/{repo}"
+
+    # Create PR (or find existing open one)
+    pr_resp = requests.post(
+        f"{api}/pulls",
+        json={"title": title, "body": body, "head": branch_name, "base": base},
+        headers=headers,
+        timeout=30,
+    )
+    if pr_resp.status_code not in (200, 201):
+        list_resp = requests.get(
+            f"{api}/pulls",
+            params={"head": f"{owner}:{branch_name}", "base": base, "state": "open"},
+            headers=headers,
+            timeout=30,
+        )
+        prs = list_resp.json() if list_resp.ok else []
+        if not prs:
+            return {"ok": False, "pr_url": None, "merge_commit": None, "error": pr_resp.text[:400]}
+        pr = prs[0]
+    else:
+        pr = pr_resp.json()
+
+    pr_number = pr["number"]
+    pr_url = pr["html_url"]
+
+    # Merge PR
+    merge_resp = requests.put(
+        f"{api}/pulls/{pr_number}/merge",
+        json={"merge_method": "merge", "commit_title": title},
+        headers=headers,
+        timeout=30,
+    )
+    if not merge_resp.ok:
+        return {"ok": False, "pr_url": pr_url, "merge_commit": None, "error": merge_resp.text[:400]}
+
+    merge_sha = merge_resp.json().get("sha")
+
+    # Delete remote branch
+    requests.delete(f"{api}/git/refs/heads/{branch_name}", headers=headers, timeout=30)
+
+    return {"ok": True, "pr_url": pr_url, "merge_commit": merge_sha, "error": None}
+
+
 def _github_https_remote(remote_url: str, token: str) -> str | None:
     if "github.com" not in remote_url:
         return None

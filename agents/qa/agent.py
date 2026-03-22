@@ -51,6 +51,8 @@ while True:
             "decision": "continue" if result.returncode == 0 else "retry",
             "status": "success" if result.returncode == 0 else "fail",
             "logs": logs,
-            "summary": summary,
+            "reason": summary.get("error_summary")
+            or summary.get("fix_suggestion")
+            or None,
         },
     )

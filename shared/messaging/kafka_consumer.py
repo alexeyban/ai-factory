@@ -3,15 +3,18 @@ import json
 from confluent_kafka.avro import AvroConsumer
 from .config import KAFKA_BOOTSTRAP, SCHEMA_REGISTRY_URL
 
-class KafkaEventConsumer:
 
+class KafkaEventConsumer:
     def __init__(self, topic, group_id):
-        self.consumer = AvroConsumer({
-            "bootstrap.servers": KAFKA_BOOTSTRAP,
-            "schema.registry.url": SCHEMA_REGISTRY_URL,
-            "group.id": group_id,
-            "auto.offset.reset": "earliest"
-        })
+        self.consumer = AvroConsumer(
+            {
+                "bootstrap.servers": KAFKA_BOOTSTRAP,
+                "schema.registry.url": SCHEMA_REGISTRY_URL,
+                "group.id": group_id,
+                "auto.offset.reset": "earliest",
+                "max.poll.interval.ms": 900000,
+            }
+        )
 
         self.consumer.subscribe([topic])
 

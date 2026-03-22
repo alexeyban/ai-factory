@@ -4,33 +4,24 @@ Project description:
 Requirements:
 - Design a complete solution architecture, not just a code breakdown
 - Consider backend, frontend, data, infrastructure, integrations, security, observability, and operations where relevant
-- Use modern frameworks, platforms, and open-source systems when they improve the solution
-- Define tasks with clear boundaries
-- Include acceptance criteria
-- Include dependencies
-- Include architecture-oriented tasks when needed, such as API design, data model design, infra setup, messaging, deployment, or UI architecture
+- Define tasks with clear boundaries and concrete deliverables
+- Every task must include the standard I/O interface below
+- Prefer many small atomic tasks over a few large ones
+- Mark can_parallelize=true only when a task has no blocking dependencies
 
-IMPORTANT: Each task description must be comprehensive and ready for implementation and testing. Do NOT create vague or high-level task descriptions.
+Standard task schema:
+{{
+  "task_id": "T001",
+  "title": "Short descriptive title",
+  "description": "Complete, implementation-ready specification",
+  "type": "feature|bugfix|refactor|setup|test",
+  "dependencies": ["dependency-task-id-1"],
+  "input": {{"files": [], "context": "required input context"}},
+  "output": {{"files": [], "artifacts": [], "expected_result": "expected outcome"}},
+  "verification": {{"method": "pytest|manual|review", "test_file": null, "criteria": []}},
+  "acceptance_criteria": ["Specific criterion 1", "Specific criterion 2"],
+  "estimated_size": "small|medium|large",
+  "can_parallelize": true
+}}
 
-Return JSON array:
-[
-  {{
-    "task_id": "unique-task-id",
-    "title": "Short descriptive title",
-    "description": "Comprehensive, detailed specification of what needs to be built. Include exact requirements, inputs, outputs, edge cases, and implementation hints. This description should be sufficient for a developer to implement this task in isolation without additional clarification.",
-    "type": "feature|bugfix|refactor|setup|test",
-    "dependencies": ["dependency-task-id-1", "dependency-task-id-2"],
-    "input": {{"files": [], "context": "required input context"}},
-    "output": {{"files": [], "artifacts": [], "expected_result": "expected outcome"}},
-    "verification": {{"method": "pytest|manual|review", "test_file": null, "criteria": []}},
-    "acceptance_criteria": ["Specific criteria 1", "Specific criteria 2", "..."],
-    "estimated_size": "small|medium|large",
-    "can_parallelize": true|false
-  }}
-]
-
-Guidelines:
-- If the project is large, create MANY small atomic tasks rather than few large ones
-- Small tasks (few hours of work) are preferred over large tasks (days of work)
-- Tasks with can_parallelize=true can run concurrently with other tasks
-- Each task must be independently testable
+Return JSON array only.

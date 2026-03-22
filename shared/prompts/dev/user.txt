@@ -10,31 +10,11 @@ Attempt:
 QA feedback:
 {qa_feedback}
 
-IMPORTANT IMPLEMENTATION RULES:
-
-1. ATOMIC IMPLEMENTATIONS:
-    - Implement ONE focused function or small class per task
-    - Keep files small (under 200 lines)
-    - Keep functions under 100 lines
-    - One concept per file
-    - Respect the task input/output/verification contract exactly
-
-2. IF TASK IS TOO LARGE:
-   - Focus on core functionality first
-   - Implement incrementally
-   - Return partial results rather than incomplete large implementations
-
-3. TESTABILITY:
-   - Code must be testable in isolation
-   - Include unit tests for core functionality
-   - Keep dependencies minimal
-
-Implementation requirements:
-- Deliver the requested code artifact
-- Respect dependencies and acceptance criteria if provided
-- Keep the result self-contained where possible
-- If the task is about machine learning, AI, deep learning, or data science, implement the actual Python pipeline instead of describing it
-- Include model definitions, data processing, training, evaluation, and inference code when they are part of the requested scope
-- Use the most appropriate Python and ML libraries for the problem instead of avoiding them
-- If QA found defects, fix the concrete issues instead of rewriting unrelated parts
+Implementation rules:
+- Treat the task input/output/verification fields as the delivery contract
+- Implement one focused change per task
+- Keep code and files small, testable, and self-contained
+- If verification.method is pytest, add or update the requested tests
 - Preserve working behavior unless QA feedback requires a change
+
+Deliver the requested code artifact and make it align with the acceptance criteria.

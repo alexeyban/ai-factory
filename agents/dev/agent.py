@@ -1,5 +1,6 @@
 import time
 import uuid
+import json
 from shared.messaging.kafka_producer import KafkaEventProducer
 from shared.messaging.kafka_consumer import KafkaEventConsumer
 from shared.llm import call_llm
@@ -22,7 +23,9 @@ while True:
     prompt = render_prompt(
         USER_PROMPT,
         task_description=event.get("description", ""),
-        task_context=event,
+        task_context=json.dumps(event, ensure_ascii=True, indent=2),
+        attempt_number=event.get("attempt_number", 1),
+        qa_feedback=event.get("qa_feedback", ""),
     )
     code = call_llm(SYSTEM_PROMPT, prompt)
 

@@ -16,10 +16,19 @@ ANALYST_SYSTEM_PROMPT = load_prompt("analyst", "system")
 PM_SYSTEM_PROMPT = load_prompt("pm", "system")
 PM_USER_PROMPT = load_prompt("pm", "user")
 
+
+def _trim_text(value: str, limit: int = 6000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "\n...[truncated by pm_agent]"
+
+
 while True:
     event = consumer.poll()
     if not event:
         continue
+
+    print(f"pm_agent: received task {event.get('task_id')}", flush=True)
 
     description = event.get("description", "")
     architect_input = call_llm(
@@ -41,9 +50,9 @@ while True:
         PM_SYSTEM_PROMPT,
         render_prompt(
             PM_USER_PROMPT,
-            task_description=description,
-            architect_input=architect_input,
-            analyst_input=analyst_input,
+            task_description=_trim_text(description, limit=12000),
+            architect_input=_trim_text(architect_input),
+            analyst_input=_trim_text(analyst_input),
         ),
     )
 
@@ -67,6 +76,16 @@ while True:
             ],
         }
 
+    if isinstance(plan, list):
+        plan = {
+            "project_goal": description,
+            "delivery_summary": description,
+            "architect_guidance": [architect_input],
+            "analyst_guidance": [analyst_input],
+            "execution_plan": plan,
+        }
+
+    execution_plan = plan.get("execution_plan", [])
     orchestrator_producer.send(
         "orchestrator.events",
         {
@@ -75,10 +94,20 @@ while True:
             "stage": "pm_done",
             "timestamp": int(time.time() * 1000),
             "decision": "continue",
-            "project_goal": plan.get("project_goal", description),
-            "delivery_summary": plan.get("delivery_summary", ""),
-            "architect_guidance": plan.get("architect_guidance", []),
-            "analyst_guidance": plan.get("analyst_guidance", []),
-            "execution_plan": plan.get("execution_plan", []),
+            "reason": plan.get("delivery_summary", ""),
+            "artifact": event.get("artifact"),
+            "status": "planned",
+            "logs": json.dumps(plan),
+            "tasks": [
+                {
+                    "task_id": task.get("task_id", str(uuid.uuid4())),
+                    "description": task.get("description", task.get("title", "")),
+                }
+                for task in execution_plan
+            ],
         },
+    )
+    print(
+        f"pm_agent: published plan for {event.get('task_id')} with {len(execution_plan)} tasks",
+        flush=True,
     )
