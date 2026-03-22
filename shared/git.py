@@ -24,14 +24,27 @@ def slugify(value: str, separator: str = "_") -> str:
     return normalized or "project"
 
 
+def _build_ssh_command() -> str:
+    """Return a GIT_SSH_COMMAND that includes an explicit identity file when possible."""
+    cmd = os.getenv("GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no")
+    # If no identity file is explicitly specified, try to detect one
+    if "-i " not in cmd and "IdentityFile" not in cmd:
+        for key_path in (
+            "/root/.ssh/id_ed25519",
+            "/root/.ssh/id_rsa",
+            "/root/.ssh/id_ecdsa",
+        ):
+            if os.path.exists(key_path):
+                cmd = f"{cmd} -i {key_path}"
+                break
+    return cmd
+
+
 def run_git(
     repo_path: Path, args: Iterable[str], check: bool = True
 ) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    if "GIT_SSH_COMMAND" in env:
-        env["GIT_SSH_COMMAND"] = os.getenv(
-            "GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no"
-        )
+    env["GIT_SSH_COMMAND"] = _build_ssh_command()
     return subprocess.run(
         ["git", *args],
         cwd=repo_path,
@@ -150,6 +163,22 @@ def current_branch(repo_path: Path) -> str:
     return run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
 
 
+def _github_https_remote(remote_url: str, token: str) -> str | None:
+    if "github.com" not in remote_url:
+        return None
+
+    https_url = remote_url
+    if https_url.startswith("git@github.com:"):
+        https_url = https_url.replace("git@github.com:", "https://github.com/")
+    elif https_url.startswith("ssh://git@github.com/"):
+        https_url = https_url.replace("ssh://git@github.com/", "https://github.com/")
+
+    if https_url.startswith("https://github.com/"):
+        return https_url.replace("https://github.com/", f"https://{token}@github.com/")
+
+    return None
+
+
 def push_branch(
     repo_path: Path, branch_name: str, remote: str = "origin"
 ) -> dict[str, str | int | bool]:
@@ -167,33 +196,32 @@ def push_branch(
             "transport": "ssh",
         }
 
-    stderr = f"{result.stderr}\n{result.stdout}".lower()
-    if any(
-        marker in stderr
-        for marker in ["repository not found", "could not read from remote repository"]
-    ):
-        token = os.getenv("GITHUB_TOKEN")
-        if token:
-            current_url = run_git(
-                repo_path, ["remote", "get-url", remote], check=False
-            ).stdout.strip()
-            https_url = current_url
-            if current_url.startswith("git@github.com:"):
-                https_url = current_url.replace(
-                    "git@github.com:", "https://github.com/"
+    token = os.getenv("GITHUB_TOKEN")
+    _token_looks_valid = (
+        token
+        and len(token) >= 20
+        and " " not in token
+        and not token.lower().startswith("your")
+        and not token.lower().startswith("ghp_your")
+    )
+    if result.returncode != 0 and _token_looks_valid:
+        current_url = run_git(
+            repo_path, ["remote", "get-url", remote], check=False
+        ).stdout.strip()
+        https_url = _github_https_remote(current_url, token)
+        if https_url:
+            run_git(repo_path, ["remote", "set-url", remote, https_url], check=False)
+            try:
+                https_result = run_git(
+                    repo_path,
+                    ["push", "-u", remote, branch_name],
+                    check=False,
                 )
-            if https_url.endswith(".git") is False:
-                https_url += ".git"
-            authed_url = https_url.replace(
-                "https://github.com/", f"https://{token}@github.com/"
-            )
-            run_git(repo_path, ["remote", "set-url", remote, authed_url], check=False)
-            https_result = run_git(
-                repo_path,
-                ["push", "-u", remote, branch_name],
-                check=False,
-            )
-            run_git(repo_path, ["remote", "set-url", remote, current_url], check=False)
+            finally:
+                run_git(
+                    repo_path, ["remote", "set-url", remote, current_url], check=False
+                )
+
             return {
                 "ok": https_result.returncode == 0,
                 "returncode": https_result.returncode,
@@ -240,10 +268,7 @@ def clone_or_pull_project(
             run_git(repo_path, ["pull", "origin", branch], check=False)
     else:
         clone_env = os.environ.copy()
-        if "GIT_SSH_COMMAND" not in clone_env:
-            clone_env["GIT_SSH_COMMAND"] = os.getenv(
-                "GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no"
-            )
+        clone_env["GIT_SSH_COMMAND"] = _build_ssh_command()
 
         clone_result = subprocess.run(
             ["git", "clone", "--branch", branch, repo_url, str(repo_path)],

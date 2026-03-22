@@ -33,7 +33,8 @@ LLM_ACTIVITY_TIMEOUT_MINUTES = int(
 TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "24"))
 TASK_EXECUTION_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_EXECUTION_TIMEOUT_HOURS", "2"))
 
-# Route task type / assigned_agent to the appropriate named Temporal activity.
+# Route task type / assigned_agent to the appropriate named Temporal activity
+# and the dedicated task queue for that agent container.
 # Tasks in the same wave (all deps satisfied) run in parallel.
 _AGENT_TO_ACTIVITY = {
     "dev": dev_task,
@@ -46,6 +47,14 @@ _TYPE_TO_ACTIVITY = {
     "setup": setup_task,
     "test": qa_task,
     "docs": docs_task,
+}
+# Each named activity runs in its own agent container on a dedicated queue.
+_ACTIVITY_TASK_QUEUE: dict = {
+    dev_task: "dev-agent-tasks",
+    qa_task: "qa-agent-tasks",
+    refactor_task: "refactor-agent-tasks",
+    setup_task: "setup-agent-tasks",
+    docs_task: "docs-agent-tasks",
 }
 
 
@@ -189,9 +198,11 @@ async def _dispatch_tasks(
 
     async def _run_one(task: Dict[str, Any]) -> Dict[str, Any]:
         activity_fn = _pick_activity(task)
+        task_queue = _ACTIVITY_TASK_QUEUE.get(activity_fn, "ai-factory-tasks")
         return await workflow.execute_activity(
             activity_fn,
             task,
+            task_queue=task_queue,
             start_to_close_timeout=timedelta(hours=TASK_EXECUTION_TIMEOUT_HOURS),
             retry_policy=retry_policy,
         )
