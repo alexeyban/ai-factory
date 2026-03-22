@@ -45,6 +45,9 @@ def run_git(
 ) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["GIT_SSH_COMMAND"] = _build_ssh_command()
+    # Prevent git from prompting for credentials interactively (no TTY in containers)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = "true"
     return subprocess.run(
         ["git", *args],
         cwd=repo_path,
@@ -264,7 +267,7 @@ def clone_or_pull_project(
         run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
         result = run_git(repo_path, ["rev-parse", "--verify", "HEAD"], check=False)
         if result.returncode == 0:
-            run_git(repo_path, ["fetch", "origin"])
+            run_git(repo_path, ["fetch", "origin"], check=False)
             run_git(repo_path, ["pull", "origin", branch], check=False)
     else:
         clone_env = os.environ.copy()

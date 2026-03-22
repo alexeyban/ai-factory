@@ -327,7 +327,36 @@ def _install_project_dependencies(repo_path: Path) -> Dict[str, Any]:
 
 def _sync_branch_to_remote(repo_path: Path, branch_name: str) -> Dict[str, Any]:
     ensure_origin_remote(repo_path, repo_path.name)
-    return push_branch(repo_path, branch_name)
+    try:
+        result = push_branch(repo_path, branch_name)
+    except Exception as exc:
+        LOGGER.warning("[git] Push raised exception for branch %s: %s", branch_name, exc)
+        return {"ok": False, "stderr": str(exc), "transport": "error"}
+    if not result.get("ok"):
+        LOGGER.warning(
+            "[git] Push to GitHub failed for branch %s (%s). "
+            "Code is committed locally in %s. "
+            "To push, add your SSH key to GitHub or set GITHUB_TOKEN in .env. "
+            "stderr: %s",
+            branch_name,
+            result.get("transport", "?"),
+            repo_path,
+            result.get("stderr", "")[:200],
+        )
+    return result
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove markdown code fences if the LLM wrapped the response."""
+    import re as _re
+    match = _re.search(r"```(?:python|py)?\n(.*?)```", text, _re.DOTALL)
+    if match:
+        return match.group(1)
+    # Single-backtick fallback
+    match = _re.search(r"`{3}(.*?)`{3}", text, _re.DOTALL)
+    if match:
+        return match.group(1)
+    return text
 
 
 def _next_version_path(directory: Path, prefix: str, suffix: str) -> Path:
@@ -817,14 +846,17 @@ def _generate_dev_artifact(
         ),
     )
 
-    code = call_llm(
-        DEV_SYSTEM_PROMPT,
-        _build_dev_prompt(task, description, attempt_number, qa_feedback),
+    code = _strip_code_fences(
+        call_llm(
+            DEV_SYSTEM_PROMPT,
+            _build_dev_prompt(task, description, attempt_number, qa_feedback),
+        )
     )
 
     file_path = _task_module_path(task, repo_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(code)
+    LOGGER.info("[dev] Code written to %s (%d bytes)", file_path, len(code))
 
     docs_dir = repo_path / "documents" / "pm"
     task_doc = _next_version_path(
