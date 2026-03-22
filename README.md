@@ -10,10 +10,11 @@ The active end-to-end path runs through the Temporal worker in [orchestrator/](/
 
 1. `PM` captures the incoming request, creates a structured delivery plan, and writes agent assignments.
 2. `Architect` produces a versioned architecture package and task breakdown.
-3. `Dev` implements work in task branches.
-4. `QA` validates task branches and merges approved work into `main`.
-5. `Analyst` writes the current project state, risks, and recommendations.
-6. `PM recovery` can re-plan blocked work and split or reassign tasks.
+3. `Decomposer` splits any tasks whose prompt exceeds the token limit into atomic subtasks.
+4. `Dev` implements work in task branches.
+5. `QA` validates task branches and merges approved work into `main`.
+6. `Analyst` writes the current project state, risks, and recommendations.
+7. `PM recovery` can re-plan blocked work and split or reassign tasks.
 
 The repo still contains Kafka-oriented standalone agents, but the primary working path is the Temporal workflow.
 
@@ -87,11 +88,20 @@ Relevant environment variables include:
 - `LLM_MODEL`
 - `LLM_FALLBACK_ORDER`
 - `LLM_PROVIDER_COOLDOWN_SECONDS`
+- `LLM_MAX_PROMPT_TOKENS` (default `8000` — tasks exceeding this are decomposed)
 - `OPENCODE_API_KEY`
 - `GEMINI_API_KEY`
 - `OPENAI_API_KEY`
 - `DEEPSEEK_API_KEY`
 - `OLLAMA_API_KEY` or `OLLANA_API_KEY`
+
+Workflow control variables:
+
+- `TEMPORAL_ADDRESS` / `TASK_QUEUE`
+- `WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES` (default `30`)
+- `DEV_QA_MAX_FIX_ATTEMPTS` (default `2`)
+- `PM_MAX_RECOVERY_CYCLES` (default `2`)
+- `MAX_TASK_EXECUTION_SECONDS` (default `900`)
 
 ## Local Stack
 
@@ -134,6 +144,12 @@ Smoke test the LLM adapter:
 
 ```bash
 .venv/bin/python scripts/test_llm.py --model opencode/bigpickle
+```
+
+Run tests:
+
+```bash
+pytest tests/
 ```
 
 Stop the stack:

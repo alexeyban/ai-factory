@@ -53,14 +53,14 @@ services:
       - "7233:7233"
 
   temporal-web:
-    image: temporalio/web:latest
+    image: temporalio/ui:latest
     depends_on:
       - temporal
     environment:
-      - TEMPORAL_GRPC_ENDPOINT=temporal:7233
-      - TEMPORAL_CORS_ORIGIN=http://localhost:8088
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
     ports:
-      - "8088:8088"
+      - "8080:8080"
 
   orchestrator:
     build:
@@ -83,25 +83,6 @@ services:
       - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no
       - SSH_AUTH_SOCK=${SSH_AUTH_SOCK}
       - LLM_RESET_COOLDOWNS=true
-    env_file:
-      - .env
-    command: ["python", "orchestrator/worker.py"]
-
-  pm_agent:
-    build:
-      context: .
-      dockerfile: agents/pm/Dockerfile
-    depends_on:
-      - kafka
-      - schema-registry
-    volumes:
-      - ./workspace:/workspace
-      - ${HOME}/.ssh:/root/.ssh:ro
-      - ${HOME}/.gitconfig:/root/.gitconfig:ro
-      - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-    environment:
-      - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=accept-new
-      - SSH_AUTH_SOCK=${SSH_AUTH_SOCK}
     env_file:
       - .env
 

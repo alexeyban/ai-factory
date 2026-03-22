@@ -26,4 +26,7 @@ def load_prompt(agent: str, prompt_type: str) -> str:
 
 
 def render_prompt(template: str, **kwargs) -> str:
-    return template.format(**kwargs)
+    result = template
+    for key, value in kwargs.items():
+        result = result.replace("{" + key + "}", str(value))
+    return result
