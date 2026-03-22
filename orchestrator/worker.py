@@ -15,6 +15,11 @@ from orchestrator.activities import (
     analyst_activity,
     process_single_task,
     process_all_tasks,
+    dev_task,
+    qa_task,
+    refactor_task,
+    setup_task,
+    docs_task,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -65,6 +70,11 @@ async def run_worker():
             analyst_activity,
             process_single_task,
             process_all_tasks,
+            dev_task,
+            qa_task,
+            refactor_task,
+            setup_task,
+            docs_task,
         ],
     )
 

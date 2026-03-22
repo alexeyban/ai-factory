@@ -52,7 +52,7 @@ PM_USER_PROMPT = load_prompt("pm", "user")
 DECOMPOSER_AGENT = DecomposerAgent()
 MAX_SELF_HEALING_ATTEMPTS = int(os.getenv("DEV_QA_MAX_FIX_ATTEMPTS", "2"))
 MAX_PM_RECOVERY_CYCLES = int(os.getenv("PM_MAX_RECOVERY_CYCLES", "2"))
-MAX_TASK_EXECUTION_SECONDS = int(os.getenv("MAX_TASK_EXECUTION_SECONDS", "900"))
+MAX_TASK_EXECUTION_SECONDS = int(os.getenv("MAX_TASK_EXECUTION_SECONDS", "1800"))
 WORKSPACE_ROOT = Path("/workspace")
 PROJECTS_ROOT = WORKSPACE_ROOT / "projects"
 AGENT_PLAN_PROMPTS = {
@@ -1586,8 +1586,11 @@ async def analyst_activity(input_data: Any) -> Dict[str, Any]:
     return _wrap_activity_result(workflow_id, "analyst", result, start_time)
 
 
-@activity.defn
-async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
+async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Core task execution: dev artifact generation + QA self-healing loop.
+
+    All named task activities (DEV_Task, QA_Task, etc.) delegate here.
+    """
     start_time = datetime.now()
     task = _load_activity_input(task)
     workflow_id = task.get("_workflow_id", "unknown")
@@ -1667,7 +1670,7 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
             repo_path,
             "pm",
             task,
-            "Task exceeded the 15-minute budget before execution started.",
+            f"Task exceeded the {MAX_TASK_EXECUTION_SECONDS // 60}-minute budget before execution started.",
             {"previous_state": previous_state or {}},
         )
         result = {
@@ -1801,7 +1804,7 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
             repo_path,
             "pm",
             task,
-            "Task exceeded the 15-minute execution budget and must continue later.",
+            f"Task exceeded the {MAX_TASK_EXECUTION_SECONDS // 60}-minute execution budget and must continue later.",
             {
                 "attempts": len(healing_history),
                 "last_dev_result": dev_result,
@@ -1838,6 +1841,42 @@ async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     return _wrap_activity_result(workflow_id, f"task_{task_id}", result, start_time)
+
+
+@activity.defn
+async def process_single_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Generic task activity — kept for backward compatibility."""
+    return await _execute_task_impl(task)
+
+
+@activity.defn(name="DEV_Task")
+async def dev_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Feature and bugfix implementation tasks dispatched to the dev agent."""
+    return await _execute_task_impl(task)
+
+
+@activity.defn(name="QA_Task")
+async def qa_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Test and validation tasks dispatched to the QA agent."""
+    return await _execute_task_impl(task)
+
+
+@activity.defn(name="REFACTOR_Task")
+async def refactor_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Refactoring tasks dispatched to the dev agent."""
+    return await _execute_task_impl(task)
+
+
+@activity.defn(name="SETUP_Task")
+async def setup_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Project setup and configuration tasks."""
+    return await _execute_task_impl(task)
+
+
+@activity.defn(name="DOCS_Task")
+async def docs_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Documentation tasks dispatched to the dev agent."""
+    return await _execute_task_impl(task)
 
 
 @activity.defn

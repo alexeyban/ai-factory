@@ -17,6 +17,11 @@ with workflow.unsafe.imports_passed_through():
         architect_activity,
         decomposer_activity,
         process_single_task,
+        dev_task,
+        qa_task,
+        refactor_task,
+        setup_task,
+        docs_task,
         analyst_activity,
         MAX_PM_RECOVERY_CYCLES,
     )
@@ -25,7 +30,32 @@ with workflow.unsafe.imports_passed_through():
 LLM_ACTIVITY_TIMEOUT_MINUTES = int(
     os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30")
 )
-TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "6"))
+TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "24"))
+TASK_EXECUTION_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_EXECUTION_TIMEOUT_HOURS", "2"))
+
+# Route task type / assigned_agent to the appropriate named Temporal activity.
+# Tasks in the same wave (all deps satisfied) run in parallel.
+_AGENT_TO_ACTIVITY = {
+    "dev": dev_task,
+    "qa": qa_task,
+}
+_TYPE_TO_ACTIVITY = {
+    "feature": dev_task,
+    "bugfix": dev_task,
+    "refactor": refactor_task,
+    "setup": setup_task,
+    "test": qa_task,
+    "docs": docs_task,
+}
+
+
+def _pick_activity(task: Dict[str, Any]):
+    """Return the named activity function for this task."""
+    agent = (task.get("assigned_agent") or "").lower()
+    if agent in _AGENT_TO_ACTIVITY:
+        return _AGENT_TO_ACTIVITY[agent]
+    task_type = (task.get("type") or "feature").lower()
+    return _TYPE_TO_ACTIVITY.get(task_type, dev_task)
 TASK_DECOMPOSITION_TOKEN_LIMIT = int(
     os.getenv("TASK_DECOMPOSITION_TOKEN_LIMIT", "8000")
 )
@@ -137,58 +167,85 @@ async def _dispatch_tasks(
     tasks: list[Dict[str, Any]],
     retry_policy: RetryPolicy,
 ) -> list[Dict[str, Any]]:
-    """Dispatch each task as a separate Temporal activity and collect results.
+    """Dispatch tasks as named Temporal activities in dependency order.
 
-    Each task is executed concurrently via asyncio.gather so Temporal tracks
-    every task individually — with its own history, retries, and timeout.
-    return_exceptions=True ensures one failing task never cancels the others.
+    Tasks whose dependencies are all satisfied run concurrently in a wave.
+    Each successive wave starts only after its prerequisites complete.
+    Failures in one wave are recorded but do not block the next wave.
+    Each task is dispatched to the typed activity matching its type/agent:
+      feature/bugfix → DEV_Task
+      test           → QA_Task
+      refactor       → REFACTOR_Task
+      setup          → SETUP_Task
+      docs           → DOCS_Task
     """
     if not tasks:
         return []
 
     workflow_id = workflow.info().workflow_id
     workflow.logger.info(
-        f"[{workflow_id}] Dispatching {len(tasks)} tasks to agents"
+        f"[{workflow_id}] Dispatching {len(tasks)} tasks to agents (dependency-ordered)"
     )
 
     async def _run_one(task: Dict[str, Any]) -> Dict[str, Any]:
+        activity_fn = _pick_activity(task)
         return await workflow.execute_activity(
-            process_single_task,
+            activity_fn,
             task,
-            start_to_close_timeout=timedelta(hours=TASK_BATCH_TIMEOUT_HOURS),
+            start_to_close_timeout=timedelta(hours=TASK_EXECUTION_TIMEOUT_HOURS),
             retry_policy=retry_policy,
         )
 
-    raw = await asyncio.gather(*[_run_one(t) for t in tasks], return_exceptions=True)
+    def _make_error(task: Dict[str, Any], reason: str) -> Dict[str, Any]:
+        return {
+            "task_id": task.get("task_id", "unknown"),
+            "project_name": task.get("project_name"),
+            "project_repo_path": task.get("project_repo_path"),
+            "status": "error",
+            "error": reason,
+        }
 
-    results: list[Dict[str, Any]] = []
-    for i, outcome in enumerate(raw):
-        task_id = tasks[i].get("task_id", f"task_{i}")
-        if isinstance(outcome, BaseException):
-            workflow.logger.error(
-                f"[{workflow_id}] Task {task_id} raised: {outcome}"
-            )
-            results.append(
-                {
-                    "task_id": task_id,
-                    "project_name": tasks[i].get("project_name"),
-                    "project_repo_path": tasks[i].get("project_repo_path"),
-                    "status": "error",
-                    "error": str(outcome),
-                }
-            )
-        elif isinstance(outcome, Mapping):
-            results.append(dict(outcome))
-        else:
-            results.append(
-                {
-                    "task_id": task_id,
-                    "status": "error",
-                    "error": f"Unexpected result type: {type(outcome).__name__}",
-                }
-            )
+    completed: dict[str, Dict[str, Any]] = {}  # task_id → result
+    remaining = list(tasks)
+    wave = 0
 
-    return results
+    while remaining:
+        ready = [
+            t for t in remaining
+            if all(dep in completed for dep in t.get("dependencies", []))
+        ]
+
+        if not ready:
+            # Circular or missing dependencies — run everything left to avoid deadlock
+            workflow.logger.warning(
+                f"[{workflow_id}] Dependency deadlock: running {len(remaining)} remaining tasks unconditionally"
+            )
+            ready = list(remaining)
+
+        wave += 1
+        ready_ids = [t.get("task_id") for t in ready]
+        workflow.logger.info(
+            f"[{workflow_id}] Wave {wave}: dispatching {len(ready)} tasks {ready_ids}"
+        )
+
+        raw = await asyncio.gather(*[_run_one(t) for t in ready], return_exceptions=True)
+
+        for task, outcome in zip(ready, raw):
+            task_id = task.get("task_id", "unknown")
+            if isinstance(outcome, BaseException):
+                workflow.logger.error(
+                    f"[{workflow_id}] Task {task_id} raised: {outcome}"
+                )
+                result = _make_error(task, str(outcome))
+            elif isinstance(outcome, Mapping):
+                result = dict(outcome)
+            else:
+                result = _make_error(task, f"Unexpected result type: {type(outcome).__name__}")
+
+            completed[task_id] = result
+            remaining.remove(task)
+
+    return list(completed.values())
 
 
 @workflow.defn
