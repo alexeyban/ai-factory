@@ -201,7 +201,7 @@ async def _dispatch_tasks(
         task_queue = _ACTIVITY_TASK_QUEUE.get(activity_fn, "ai-factory-tasks")
         return await workflow.execute_activity(
             activity_fn,
-            task,
+            {**task, "_workflow_id": workflow_id},
             task_queue=task_queue,
             start_to_close_timeout=timedelta(hours=TASK_EXECUTION_TIMEOUT_HOURS),
             retry_policy=retry_policy,
@@ -274,6 +274,9 @@ class OrchestratorWorkflow:
             )
 
             workflow_id = workflow.info().workflow_id
+            # Propagate workflow_id into all activity inputs so context files
+            # are saved under the correct workflow directory (not "unknown").
+            initial_task = {**initial_task, "_workflow_id": workflow_id}
 
             workflow.logger.info(
                 f"[{workflow_id}] Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')[:100]}"
@@ -517,6 +520,7 @@ class ProjectWorkflow:
             )
 
             workflow_id = workflow.info().workflow_id
+            initial_task = {**initial_task, "_workflow_id": workflow_id}
 
             workflow.logger.info(
                 f"[{workflow_id}] Starting project workflow: {project_name}"
