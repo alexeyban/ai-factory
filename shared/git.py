@@ -25,9 +25,18 @@ def slugify(value: str, separator: str = "_") -> str:
 
 
 def _build_ssh_command() -> str:
-    """Return a GIT_SSH_COMMAND that includes an explicit identity file when possible."""
+    """Return a GIT_SSH_COMMAND for git operations.
+
+    When SSH_AUTH_SOCK is set the agent holds the decrypted key — do NOT
+    pass -i, which would force SSH to decrypt the file and prompt for a
+    passphrase (no TTY in container).  Fall back to an explicit identity
+    file only when no agent socket is available.
+    """
     cmd = os.getenv("GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no")
-    # If no identity file is explicitly specified, try to detect one
+    # Agent socket available → let the agent provide the key, no -i needed
+    if os.getenv("SSH_AUTH_SOCK"):
+        return cmd
+    # No agent → try to find an unencrypted (or usable) key file
     if "-i " not in cmd and "IdentityFile" not in cmd:
         for key_path in (
             "/root/.ssh/id_ed25519",
@@ -122,7 +131,7 @@ def merge_branch(
 
 def ensure_origin_remote(repo_path: Path, project_name: str) -> str:
     ensure_repo(repo_path)
-    repo_slug = slugify(project_name, separator="_")
+    repo_slug = slugify(project_name, separator="-")
     remote_url = f"git@github.com:{DEFAULT_GITHUB_OWNER}/{repo_slug}.git"
     remotes = run_git(repo_path, ["remote"], check=False).stdout.split()
     if "origin" in remotes:
