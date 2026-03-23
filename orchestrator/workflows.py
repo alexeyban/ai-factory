@@ -562,7 +562,7 @@ class ProjectWorkflow:
                 f"[{workflow_id}] Starting project workflow: {project_name}"
             )
 
-            pm_result = _require_activity_result(
+            pm_result = _load_result_from_file(_require_activity_result(
                 "pm_activity",
                 await workflow.execute_activity(
                     pm_activity,
@@ -572,9 +572,9 @@ class ProjectWorkflow:
                     ),
                     retry_policy=retry_policy,
                 ),
-            )
+            ))
 
-            architect_result = _require_activity_result(
+            architect_result = _load_result_from_file(_require_activity_result(
                 "architect_activity",
                 await workflow.execute_activity(
                     architect_activity,
@@ -593,7 +593,7 @@ class ProjectWorkflow:
                     ),
                     retry_policy=retry_policy,
                 ),
-            )
+            ))
 
             tasks = architect_result.get("tasks", [])
             tasks = await _prepare_execution_tasks(
