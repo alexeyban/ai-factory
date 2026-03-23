@@ -2137,7 +2137,7 @@ async def cleanup_stale_branches_activity(payload: Dict[str, Any]) -> Dict[str, 
       project_repo_path  – local path to the generated project repo
       completed_task_ids – list of task IDs that finished (any status)
     """
-    import requests as _requests
+    import requests as _requests  # local import keeps activities.py from requiring requests at import time
 
     repo_path_str = payload.get("project_repo_path", "")
     completed_ids: list[str] = list(payload.get("completed_task_ids", []))
