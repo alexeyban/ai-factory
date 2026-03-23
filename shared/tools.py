@@ -361,7 +361,85 @@ def run_pytest_with_coverage(
 
 
 # ---------------------------------------------------------------------------
-# 7. Git diff
+# 7. Previous error history
+# ---------------------------------------------------------------------------
+
+
+def get_task_error_history(repo_path: Path, task_id: str) -> ToolResult:
+    """Read previous attempt errors and QA feedback from the task state file.
+
+    Returns a human-readable summary of what went wrong on each prior attempt
+    so the dev agent can try a different approach.
+
+    data = {
+        attempts: [{attempt, error, qa_status, qa_summary, approach_tried}],
+        total_failures: int,
+        last_error: str,
+    }
+    """
+    state_path = repo_path / ".ai_factory" / "tasks" / f"{task_id}.json"
+    if not state_path.exists():
+        return ToolResult(
+            ok=True,
+            output="No previous attempts recorded.",
+            data={"attempts": [], "total_failures": 0, "last_error": ""},
+        )
+
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return ToolResult(
+            ok=False,
+            output="",
+            data={"attempts": [], "total_failures": 0, "last_error": ""},
+            error=f"cannot read task state: {exc}",
+        )
+
+    attempts: list[dict] = []
+    history = state.get("attempts", [])
+    # Also handle flat state where each key is attempt_N
+    if not history and state.get("attempt"):
+        history = [state]
+
+    for entry in history:
+        attempt_num = entry.get("attempt", entry.get("attempt_number", "?"))
+        error = entry.get("error", "")
+        qa = entry.get("qa", {}) or {}
+        qa_status = qa.get("status", entry.get("status", ""))
+        qa_summary = qa.get("summary", entry.get("qa_summary", ""))[:500]
+        approach = entry.get("approach", "")
+        attempts.append({
+            "attempt": attempt_num,
+            "error": str(error)[:300] if error else "",
+            "qa_status": qa_status,
+            "qa_summary": qa_summary,
+            "approach_tried": approach,
+        })
+
+    failures = [a for a in attempts if a["qa_status"] not in ("success", "complete", "")]
+    last_error = failures[-1]["error"] or failures[-1]["qa_summary"] if failures else ""
+
+    lines = []
+    for a in attempts:
+        lines.append(f"Attempt {a['attempt']}: status={a['qa_status']}")
+        if a["error"]:
+            lines.append(f"  Error: {a['error']}")
+        if a["qa_summary"]:
+            lines.append(f"  QA: {a['qa_summary']}")
+
+    return ToolResult(
+        ok=True,
+        output="\n".join(lines) if lines else "No previous failures.",
+        data={
+            "attempts": attempts,
+            "total_failures": len(failures),
+            "last_error": last_error,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. Git diff
 # ---------------------------------------------------------------------------
 
 
