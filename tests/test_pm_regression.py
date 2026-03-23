@@ -49,8 +49,8 @@ def test_pm_activity_calls_llm_with_truncated_notes(tmp_path):
     (the PM planning call). The first two calls return large strings to simulate
     a verbose architect/analyst.
     """
-    # Import here to avoid loading heavy dependencies at collection time
-    from orchestrator.activities import _PM_MAX_NOTES_CHARS  # noqa: PLC0415
+    # _PM_MAX_NOTES_CHARS is a local constant inside pm_activity; keep in sync.
+    _PM_MAX_NOTES_CHARS = 4000
 
     big_response = _make_large_text(40_000)
     captured_prompts: list[str] = []
