@@ -114,7 +114,9 @@ The default Docker stack includes:
 - Temporal
 - Temporal Web UI
 - Orchestrator worker
-- PM agent container
+- Per-type agent workers: `dev-worker`, `qa-worker`, `setup-worker`, `docs-worker`, `refactor-worker`
+
+Each agent type listens on its own Temporal task queue (`dev-agent-tasks`, `qa-agent-tasks`, etc.) so that slow tasks on one queue do not block other agent types.
 
 Temporal Web UI:
 
