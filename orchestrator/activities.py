@@ -1441,6 +1441,7 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "event_id": str(uuid.uuid4()),
         "task_id": task.get("task_id", str(uuid.uuid4())),
         "stage": "pm_done",
+        "status": "success",
         "timestamp": int(time.time() * 1000),
         "decision": "continue",
         "project_name": project_name,
