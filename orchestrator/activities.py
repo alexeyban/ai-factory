@@ -28,6 +28,15 @@ from shared.git import (
     get_or_create_project_path,
 )
 from shared.llm import call_llm
+from shared.tools import (
+    ToolResult,
+    build_file_tree,
+    build_import_map,
+    run_lint,
+    run_pytest_with_coverage,
+    run_typecheck,
+    syntax_check,
+)
 from shared.prompts.loader import load_prompt, render_prompt
 
 LOGGER = logging.getLogger(__name__)
