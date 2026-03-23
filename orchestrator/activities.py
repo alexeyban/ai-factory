@@ -1035,13 +1035,76 @@ def _run_qa_for_artifact(
         status = "fail"
     else:
         dependency_info = _install_project_dependencies(repo_path)
-        result = _run_pytest(repo_path, timeout_seconds=remaining_seconds or 120)
-        qa_logs = (
-            f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
-            + result.stdout
-            + result.stderr
-        )
-        status = "success" if result.returncode == 0 else "fail"
+        python_path = Path(dependency_info["python"])
+
+        # 1. Syntax check (stdlib, instant — no subprocess)
+        syntax_result = syntax_check(artifact_path)
+        if not syntax_result.ok:
+            qa_logs = (
+                f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
+                f"SYNTAX ERROR (pre-pytest):\n{syntax_result.output}\n"
+                f"Details: {json.dumps(syntax_result.data, ensure_ascii=True)}\n"
+            )
+            status = "fail"
+        else:
+            # 2. Lint (ruff — skipped gracefully if not installed)
+            lint_result = run_lint(artifact_path, python_path)
+
+            # 3. Type check (mypy — skipped gracefully if not installed)
+            type_result = run_typecheck(artifact_path, repo_path, python_path)
+
+            # 4. Pytest with coverage (replaces bare _run_pytest)
+            pytest_result = run_pytest_with_coverage(
+                repo_path,
+                python_path,
+                timeout=remaining_seconds or 120,
+                module_name=_project_slug(task),
+            )
+
+            # 5. Assemble qa_logs for LLM summarizer
+            if lint_result.error:
+                lint_section = f"LINT (ruff) [unavailable: {lint_result.error}]"
+            else:
+                lint_section = (
+                    f"LINT (ruff): {'OK' if lint_result.ok else 'ISSUES FOUND'}\n"
+                    + json.dumps(
+                        lint_result.data.get("issues", [])[:20],
+                        ensure_ascii=True,
+                    )
+                )
+
+            if type_result.error:
+                type_section = (
+                    f"TYPE CHECK (mypy) [unavailable: {type_result.error}]"
+                )
+            else:
+                type_section = (
+                    f"TYPE CHECK (mypy): {'OK' if type_result.ok else 'ERRORS FOUND'}\n"
+                    + json.dumps(
+                        type_result.data.get("errors", [])[:20],
+                        ensure_ascii=True,
+                    )
+                )
+
+            cov = pytest_result.data.get("coverage")
+            cov_section = (
+                f"Coverage: {cov['percent']:.1f}%"
+                f" ({cov['covered_lines']}/{cov['total_lines']} lines)\n"
+                if cov
+                else "Coverage: not available\n"
+            )
+            qa_logs = (
+                f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
+                f"SYNTAX: OK\n\n"
+                f"{lint_section}\n\n"
+                f"{type_section}\n\n"
+                f"PYTEST:\n"
+                f"{pytest_result.data.get('stdout', '')}"
+                f"{pytest_result.data.get('stderr', '')}\n"
+                f"{cov_section}"
+            )
+            status = "success" if pytest_result.ok else "fail"
+
         summary = _summarize_qa_result(description, qa_logs, status)
 
     qa_dir = repo_path / "documents" / "qa"
