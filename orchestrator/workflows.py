@@ -326,6 +326,12 @@ class OrchestratorWorkflow:
                 f"[{workflow_id}] PM completed, generated {len(pm_result.get('execution_plan', []))} planned assignments"
             )
 
+            # Summarise PM plan to titles only — full task objects can be 30+ items
+            # and would overflow Temporal's 512 KB payload and decomposer inputs.
+            _pm_plan_titles = "\n".join(
+                f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                for t in (pm_result.get("execution_plan") or [])[:30]
+            )
             architect_request = {
                 **initial_task,
                 "project_name": pm_result.get(
@@ -336,7 +342,7 @@ class OrchestratorWorkflow:
                     f"{initial_task.get('description', '')}\n\n"
                     f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
                     f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
-                    f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                    f"PM execution plan tasks:\n{_pm_plan_titles}"
                 ),
             }
 
