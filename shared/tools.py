@@ -442,7 +442,9 @@ def get_task_error_history(repo_path: Path, task_id: str) -> ToolResult:
         if a["error"]:
             lines.append(f"  Error: {a['error']}")
         if a["qa_summary"]:
-            lines.append(f"  QA: {a['qa_summary']}")
+            lines.append(f"  QA summary: {a['qa_summary']}")
+        if a["qa_logs_snippet"]:
+            lines.append(f"  Log excerpt: {a['qa_logs_snippet']}")
 
     return ToolResult(
         ok=True,
