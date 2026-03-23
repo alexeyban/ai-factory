@@ -219,8 +219,6 @@ def _enable_github_auto_merge(
     Used as fallback when branch protection rules block a direct merge.
     Returns {"ok": bool, "error": str|None}.
     """
-    import requests
-
     # First fetch the PR node_id needed for the GraphQL mutation
     headers = {
         "Authorization": f"Bearer {token}",
