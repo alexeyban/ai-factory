@@ -75,13 +75,14 @@ def _normalize_model_name(provider: str, model: str) -> str:
         }:
             return "big-pickle"
         if normalized_lower in {
+            "minimax/minimax-m2.5-free",
             "minimax-m2.5-free",
             "minimax m2.5 free",
             "minimax m2.5free",
             "m2.5-free",
             "m2.5 free",
         }:
-            return "MiniMax-M2.5-Free"
+            return "minimax/MiniMax-M2.5-Free"
 
     if provider == "openai":
         if normalized_lower in {
