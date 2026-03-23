@@ -150,6 +150,7 @@ def _wrap_activity_result(
         "_context_file": str(output_file),
         "_workflow_id": workflow_id,
         "task_id": result.get("task_id"),
+        "title": result.get("title") or result.get("name"),
         "stage": stage,
         "decision": result.get("decision", "continue"),
         "status": result.get("status"),
@@ -669,6 +670,7 @@ async def decomposer_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     result = {
         "task_id": task.get("task_id"),
         "stage": "decomposer_done",
+        "status": "success",
         "decision": "continue",
         "tasks": tasks,
         **project_context_dict,
@@ -1440,6 +1442,7 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "event_id": str(uuid.uuid4()),
         "task_id": task.get("task_id", str(uuid.uuid4())),
         "stage": "pm_done",
+        "status": "success",
         "timestamp": int(time.time() * 1000),
         "decision": "continue",
         "project_name": project_name,
@@ -1507,10 +1510,14 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     artifact_paths = _record_architecture_artifacts(task, output, tasks)
+    # Use a short project_description in task contexts to prevent the full PM plan
+    # (which can be 30+ tasks with full objects) from being embedded into every task
+    # and overflowing the decomposer's Temporal message payload.
+    _TASK_PROJ_DESC_MAX = 800
     project_context = {
         "project_name": _project_name(task),
         "project_repo_path": artifact_paths["project_repo_path"],
-        "project_description": description,
+        "project_description": description[:_TASK_PROJ_DESC_MAX],
         "github_url": task.get("github_url", ""),
     }
     normalized_tasks = _normalize_task_list(tasks, project_context)
@@ -1519,6 +1526,7 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "event_id": str(uuid.uuid4()),
         "task_id": task.get("task_id", str(uuid.uuid4())),
         "stage": "architect_done",
+        "status": "success",
         "timestamp": int(time.time() * 1000),
         "decision": "continue",
         "tasks": normalized_tasks,
@@ -1854,7 +1862,11 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
     )
     previous_state = _load_task_state(repo_path, task_id)
 
-    if previous_state and previous_state.get("status") == "success":
+    if (
+        previous_state
+        and previous_state.get("status") == "success"
+        and previous_state.get("workflow_id") == workflow_id
+    ):
         LOGGER.info(
             "[process_task] Resuming from previous success | workflow=%s | task_id=%s",
             workflow_id,
@@ -2060,7 +2072,7 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
         "continuation": continuation,
         "task_plan": task_plan,
     }
-    _save_task_state(repo_path, task_id, {"status": final_status, "result": result})
+    _save_task_state(repo_path, task_id, {"status": final_status, "workflow_id": workflow_id, "result": result})
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(

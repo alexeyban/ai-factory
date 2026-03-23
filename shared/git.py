@@ -71,8 +71,10 @@ def ensure_repo(repo_path: Path) -> None:
     repo_path.mkdir(parents=True, exist_ok=True)
     if not (repo_path / ".git").exists():
         run_git(repo_path, ["init", "-b", "main"])
-    run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
-    run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+    # check=False: these are idempotent config writes; concurrent tasks on the same
+    # repo can race on .git/config and return exit 255 — safe to ignore.
+    run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME], check=False)
+    run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL], check=False)
 
 
 def has_commits(repo_path: Path) -> bool:
@@ -307,6 +309,22 @@ def push_branch(
             "transport": "ssh",
         }
 
+    # Retry with force-with-lease on non-fast-forward (task branches are AI-owned)
+    if result.returncode != 0 and "rejected" in result.stderr and "non-fast-forward" in result.stderr:
+        force_result = run_git(
+            repo_path,
+            ["push", "--force-with-lease", "-u", remote, branch_name],
+            check=False,
+        )
+        if force_result.returncode == 0:
+            return {
+                "ok": True,
+                "returncode": force_result.returncode,
+                "stdout": force_result.stdout.strip(),
+                "stderr": force_result.stderr.strip(),
+                "transport": "ssh-force",
+            }
+
     token = os.getenv("GITHUB_TOKEN")
     _token_looks_valid = (
         token
@@ -371,8 +389,8 @@ def clone_or_pull_project(
     repo_path.parent.mkdir(parents=True, exist_ok=True)
 
     if repo_path.exists() and (repo_path / ".git").exists():
-        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
-        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME], check=False)
+        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL], check=False)
         result = run_git(repo_path, ["rev-parse", "--verify", "HEAD"], check=False)
         if result.returncode == 0:
             run_git(repo_path, ["fetch", "origin"], check=False)
@@ -396,8 +414,8 @@ def clone_or_pull_project(
                 text=True,
             )
 
-        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
-        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME], check=False)
+        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL], check=False)
 
     return repo_path
 

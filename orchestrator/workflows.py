@@ -108,24 +108,23 @@ def _require_task_list(name: str, result: Any) -> list[Dict[str, Any]]:
 def _load_result_from_file(envelope: Dict[str, Any]) -> Dict[str, Any]:
     """Read the full activity result from disk given a slim Temporal envelope.
 
-    Uses workflow.side_effect so the loaded data is recorded in Temporal's event
-    history on first run and replayed from history on subsequent runs — making
-    file I/O deterministic and replay-safe.
+    Context files are immutable once written — reading them directly is safe
+    on workflow replay because the content never changes between runs.
+    Uses sandbox_unrestricted() to bypass Temporal's I/O sandbox for this
+    deterministic file read.
     """
     context_file = envelope.get("_context_file")
     if not context_file:
         return envelope
 
-    def _read() -> Dict[str, Any]:
-        try:
+    try:
+        with workflow.unsafe.sandbox_unrestricted():
             data = json.loads(Path(context_file).read_text(encoding="utf-8"))
-            data.pop("_meta", None)
-            return data
-        except Exception as exc:
-            workflow.logger.warning(f"[workflow] Failed to load context file {context_file}: {exc}")
-            return envelope
-
-    return workflow.side_effect(_read)
+        data.pop("_meta", None)
+        return data
+    except Exception as exc:
+        workflow.logger.warning(f"[workflow] Failed to load context file {context_file}: {exc}")
+        return envelope
 
 
 def _project_context(
@@ -165,6 +164,7 @@ async def _decompose_large_tasks(
     project_context: Dict[str, Any],
     retry_policy: RetryPolicy,
 ) -> list[Dict[str, Any]]:
+    workflow_id = workflow.info().workflow_id
     expanded: list[Dict[str, Any]] = []
     for task in tasks:
         normalized_task = normalize_task_contract(task, project_context=project_context)
@@ -174,7 +174,7 @@ async def _decompose_large_tasks(
 
         decomposed_envelope = await workflow.execute_activity(
             decomposer_activity,
-            {**project_context, **normalized_task},
+            {**project_context, **normalized_task, "_workflow_id": workflow_id},
             start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
             retry_policy=retry_policy,
         )
@@ -326,6 +326,12 @@ class OrchestratorWorkflow:
                 f"[{workflow_id}] PM completed, generated {len(pm_result.get('execution_plan', []))} planned assignments"
             )
 
+            # Summarise PM plan to titles only — full task objects can be 30+ items
+            # and would overflow Temporal's 512 KB payload and decomposer inputs.
+            _pm_plan_titles = "\n".join(
+                f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                for t in (pm_result.get("execution_plan") or [])[:30]
+            )
             architect_request = {
                 **initial_task,
                 "project_name": pm_result.get(
@@ -336,7 +342,7 @@ class OrchestratorWorkflow:
                     f"{initial_task.get('description', '')}\n\n"
                     f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
                     f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
-                    f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                    f"PM execution plan tasks:\n{_pm_plan_titles}"
                 ),
             }
 
@@ -562,7 +568,7 @@ class ProjectWorkflow:
                 f"[{workflow_id}] Starting project workflow: {project_name}"
             )
 
-            pm_result = _require_activity_result(
+            pm_result = _load_result_from_file(_require_activity_result(
                 "pm_activity",
                 await workflow.execute_activity(
                     pm_activity,
@@ -572,9 +578,13 @@ class ProjectWorkflow:
                     ),
                     retry_policy=retry_policy,
                 ),
-            )
+            ))
 
-            architect_result = _require_activity_result(
+            _pm_plan_titles_proj = "\n".join(
+                f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                for t in (pm_result.get("execution_plan") or [])[:30]
+            )
+            architect_result = _load_result_from_file(_require_activity_result(
                 "architect_activity",
                 await workflow.execute_activity(
                     architect_activity,
@@ -585,7 +595,7 @@ class ProjectWorkflow:
                         "description": (
                             f"{description}\n\nPM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
                             f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
-                            f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                            f"PM execution plan tasks:\n{_pm_plan_titles_proj}"
                         ),
                     },
                     start_to_close_timeout=timedelta(
@@ -593,7 +603,7 @@ class ProjectWorkflow:
                     ),
                     retry_policy=retry_policy,
                 ),
-            )
+            ))
 
             tasks = architect_result.get("tasks", [])
             tasks = await _prepare_execution_tasks(
