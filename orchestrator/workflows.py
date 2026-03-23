@@ -386,7 +386,7 @@ class OrchestratorWorkflow:
             recovery_cycle = 0
             while recovery_cycle < MAX_PM_RECOVERY_CYCLES and any(
                 result.get("status") != "success"
-                or result.get("qa", {}).get("status") not in {None, "success"}
+                or result.get("qa_status") not in {None, "success"}
                 or result.get("error")
                 for result in dev_qa_results
             ):
@@ -507,7 +507,7 @@ class OrchestratorWorkflow:
             final_status = "complete"
             if any(
                 result.get("status") != "success"
-                or result.get("qa", {}).get("status") not in {None, "success"}
+                or result.get("qa_status") not in {None, "success"}
                 or result.get("error")
                 for result in dev_qa_results
             ):
@@ -617,7 +617,7 @@ class ProjectWorkflow:
             recovery_cycle = 0
             while recovery_cycle < MAX_PM_RECOVERY_CYCLES and any(
                 result.get("status") != "success"
-                or result.get("qa", {}).get("status") not in {None, "success"}
+                or result.get("qa_status") not in {None, "success"}
                 or result.get("error")
                 for result in dev_qa_results
             ):
@@ -727,7 +727,7 @@ class ProjectWorkflow:
             final_status = "complete"
             if any(
                 result.get("status") != "success"
-                or result.get("qa", {}).get("status") not in {None, "success"}
+                or result.get("qa_status") not in {None, "success"}
                 or result.get("error")
                 for result in dev_qa_results
             ):
