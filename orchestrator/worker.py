@@ -13,6 +13,7 @@ from orchestrator.activities import (
     dev_activity,
     qa_activity,
     analyst_activity,
+    cleanup_stale_branches_activity,
     process_single_task,
     process_all_tasks,
     dev_task,
