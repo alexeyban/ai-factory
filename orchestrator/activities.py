@@ -1510,10 +1510,14 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     artifact_paths = _record_architecture_artifacts(task, output, tasks)
+    # Use a short project_description in task contexts to prevent the full PM plan
+    # (which can be 30+ tasks with full objects) from being embedded into every task
+    # and overflowing the decomposer's Temporal message payload.
+    _TASK_PROJ_DESC_MAX = 800
     project_context = {
         "project_name": _project_name(task),
         "project_repo_path": artifact_paths["project_repo_path"],
-        "project_description": description,
+        "project_description": description[:_TASK_PROJ_DESC_MAX],
         "github_url": task.get("github_url", ""),
     }
     normalized_tasks = _normalize_task_list(tasks, project_context)
