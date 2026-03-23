@@ -150,6 +150,7 @@ def _wrap_activity_result(
         "_context_file": str(output_file),
         "_workflow_id": workflow_id,
         "task_id": result.get("task_id"),
+        "title": result.get("title") or result.get("name"),
         "stage": stage,
         "decision": result.get("decision", "continue"),
         "status": result.get("status"),
