@@ -1862,7 +1862,11 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
     )
     previous_state = _load_task_state(repo_path, task_id)
 
-    if previous_state and previous_state.get("status") == "success":
+    if (
+        previous_state
+        and previous_state.get("status") == "success"
+        and previous_state.get("workflow_id") == workflow_id
+    ):
         LOGGER.info(
             "[process_task] Resuming from previous success | workflow=%s | task_id=%s",
             workflow_id,
