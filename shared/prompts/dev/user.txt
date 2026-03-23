@@ -10,6 +10,8 @@ Attempt:
 QA feedback:
 {qa_feedback}
 
+{existing_code}
+
 Implementation rules:
 - Treat the task input/output/verification fields as the delivery contract
 - Implement one focused change per task
