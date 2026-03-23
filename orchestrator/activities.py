@@ -852,12 +852,28 @@ def _build_dev_prompt(
     if qa_feedback:
         qa_feedback_text = json.dumps(qa_feedback, indent=2, ensure_ascii=True)
 
+    error_history_text = ""
+    if attempt_number > 1:
+        try:
+            repo_path = _project_repo_path(task)
+            task_id = task.get("task_id", "")
+            if task_id and repo_path.exists():
+                history = get_task_error_history(repo_path, task_id)
+                if history.output and history.output != "No previous attempts recorded.":
+                    error_history_text = (
+                        "Previous attempt errors — try a DIFFERENT approach:\n"
+                        + history.output
+                    )
+        except Exception:
+            pass  # never crash the dev loop
+
     return render_prompt(
         DEV_USER_PROMPT,
         task_description=description,
         task_context=json.dumps(task, indent=2, ensure_ascii=True),
         attempt_number=attempt_number,
         qa_feedback=qa_feedback_text,
+        error_history=error_history_text,
         existing_code=_build_existing_code_context(task),
     )
 
