@@ -164,6 +164,7 @@ async def _decompose_large_tasks(
     project_context: Dict[str, Any],
     retry_policy: RetryPolicy,
 ) -> list[Dict[str, Any]]:
+    workflow_id = workflow.info().workflow_id
     expanded: list[Dict[str, Any]] = []
     for task in tasks:
         normalized_task = normalize_task_contract(task, project_context=project_context)
@@ -173,7 +174,7 @@ async def _decompose_large_tasks(
 
         decomposed_envelope = await workflow.execute_activity(
             decomposer_activity,
-            {**project_context, **normalized_task},
+            {**project_context, **normalized_task, "_workflow_id": workflow_id},
             start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
             retry_policy=retry_policy,
         )
