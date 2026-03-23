@@ -1201,7 +1201,10 @@ def _normalize_task(
     normalized.setdefault("task_id", str(uuid.uuid4()))
     normalized["project_name"] = context.get("project_name", "project")
     normalized["project_repo_path"] = context.get("project_repo_path", "")
-    normalized["project_description"] = context.get("project_description", "")
+    # Store a short description reference rather than the full 40k+ project description
+    # to keep Temporal payloads under the 512KB limit.
+    desc = context.get("project_description", "")
+    normalized["project_description"] = desc[:500] if desc else ""
     return normalized
 
 
