@@ -172,15 +172,16 @@ async def _decompose_large_tasks(
             expanded.append(normalized_task)
             continue
 
-        decomposed = await workflow.execute_activity(
+        decomposed_envelope = await workflow.execute_activity(
             decomposer_activity,
             {**project_context, **normalized_task},
             start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
             retry_policy=retry_policy,
         )
+        decomposed_full = _load_result_from_file(_require_activity_result("decomposer_activity", decomposed_envelope))
         expanded.extend(
             _normalize_tasks(
-                _require_task_list("decomposer_activity", decomposed), project_context
+                decomposed_full.get("tasks", []), project_context
             )
         )
         await asyncio.sleep(0)  # yield to prevent TMPRL1101 deadlock
