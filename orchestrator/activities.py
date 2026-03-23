@@ -986,17 +986,28 @@ def _generate_dev_artifact(
         ),
     )
 
-    code = _strip_code_fences(
-        call_llm(
-            DEV_SYSTEM_PROMPT,
-            _build_dev_prompt(task, description, attempt_number, qa_feedback),
-        )
+    raw_output = call_llm(
+        DEV_SYSTEM_PROMPT,
+        _build_dev_prompt(task, description, attempt_number, qa_feedback),
     )
 
-    file_path = _task_module_path(task, repo_path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(code)
-    LOGGER.info("[dev] Code written to %s (%d bytes)", file_path, len(code))
+    multi = _parse_multi_file_output(raw_output)
+    if multi:
+        written_paths = []
+        for rel_path, content in multi:
+            fp = repo_path / rel_path
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content)
+            LOGGER.info("[dev] Code written to %s (%d bytes)", fp, len(content))
+            written_paths.append(fp)
+        file_path = written_paths[0]
+        code = multi[0][1]
+    else:
+        code = _strip_code_fences(raw_output)
+        file_path = _task_module_path(task, repo_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(code)
+        LOGGER.info("[dev] Code written to %s (%d bytes)", file_path, len(code))
 
     docs_dir = repo_path / "documents" / "pm"
     task_doc = _next_version_path(
