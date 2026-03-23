@@ -10,6 +10,8 @@ Attempt:
 QA feedback:
 {qa_feedback}
 
+{error_history}
+
 {existing_code}
 
 Implementation rules:
