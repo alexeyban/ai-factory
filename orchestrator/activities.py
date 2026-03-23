@@ -800,6 +800,39 @@ def _record_architecture_request(task: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_existing_code_context(task: Dict[str, Any]) -> str:
+    """Build the existing_code block for the dev prompt.
+
+    Returns empty string if the repo does not exist or is empty.
+    Never raises — a failure here must not crash the dev loop.
+    """
+    try:
+        repo_path = _project_repo_path(task)
+        if not repo_path.exists():
+            return ""
+        tree = build_file_tree(repo_path)
+        imports = build_import_map(repo_path)
+        if not tree.data.get("files"):
+            return ""
+        lines: list[str] = ["Existing project structure:"]
+        for rel in tree.data["files"]:
+            info = imports.data.get("modules", {}).get(rel, {})
+            parts: list[str] = []
+            if info.get("classes"):
+                parts.append(f"classes: {', '.join(info['classes'])}")
+            if info.get("functions"):
+                parts.append(f"functions: {', '.join(info['functions'])}")
+            lines.append(
+                f"  {rel}" + (f" ({'; '.join(parts)})" if parts else "")
+            )
+        avail = imports.data.get("available_imports", [])
+        if avail:
+            lines += ["", "Available imports:"] + [f"  {imp}" for imp in avail]
+        return "\n".join(lines)
+    except Exception:
+        return ""  # never crash the dev loop
+
+
 def _build_dev_prompt(
     task: Dict[str, Any],
     description: str,
