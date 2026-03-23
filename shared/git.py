@@ -307,6 +307,22 @@ def push_branch(
             "transport": "ssh",
         }
 
+    # Retry with force-with-lease on non-fast-forward (task branches are AI-owned)
+    if result.returncode != 0 and "rejected" in result.stderr and "non-fast-forward" in result.stderr:
+        force_result = run_git(
+            repo_path,
+            ["push", "--force-with-lease", "-u", remote, branch_name],
+            check=False,
+        )
+        if force_result.returncode == 0:
+            return {
+                "ok": True,
+                "returncode": force_result.returncode,
+                "stdout": force_result.stdout.strip(),
+                "stderr": force_result.stderr.strip(),
+                "transport": "ssh-force",
+            }
+
     token = os.getenv("GITHUB_TOKEN")
     _token_looks_valid = (
         token
