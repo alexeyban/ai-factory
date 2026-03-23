@@ -1383,6 +1383,11 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         task, description, plan, architect_notes, analyst_notes
     )
 
+    # Truncate architect/analyst guidance to avoid exceeding Temporal's 512KB payload limit
+    _GUIDANCE_MAX = 2000
+    truncated_architect = [g[:_GUIDANCE_MAX] for g in plan.get("architect_guidance", [])]
+    truncated_analyst = [g[:_GUIDANCE_MAX] for g in plan.get("analyst_guidance", [])]
+
     result = {
         "event_id": str(uuid.uuid4()),
         "task_id": task.get("task_id", str(uuid.uuid4())),
@@ -1391,10 +1396,10 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "decision": "continue",
         "project_name": project_name,
         "project_repo_path": str(project_repo_path),
-        "project_goal": plan.get("project_goal", description),
-        "delivery_summary": plan.get("delivery_summary", ""),
-        "architect_guidance": plan.get("architect_guidance", []),
-        "analyst_guidance": plan.get("analyst_guidance", []),
+        "project_goal": plan.get("project_goal", description)[:2000],
+        "delivery_summary": plan.get("delivery_summary", "")[:2000],
+        "architect_guidance": truncated_architect,
+        "analyst_guidance": truncated_analyst,
         "execution_plan": plan.get("execution_plan", []),
         "artifacts": {**intake_artifacts, **artifact_paths},
     }
