@@ -28,6 +28,15 @@ from shared.git import (
     get_or_create_project_path,
 )
 from shared.llm import call_llm
+from shared.tools import (
+    ToolResult,
+    build_file_tree,
+    build_import_map,
+    run_lint,
+    run_pytest_with_coverage,
+    run_typecheck,
+    syntax_check,
+)
 from shared.prompts.loader import load_prompt, render_prompt
 
 LOGGER = logging.getLogger(__name__)
@@ -304,13 +313,14 @@ def _install_project_dependencies(repo_path: Path) -> Dict[str, Any]:
     python_path = _ensure_project_python_env(repo_path)
     install_steps: List[str] = []
     subprocess.run(
-        [str(python_path), "-m", "pip", "install", "pytest", "requests"],
+        [str(python_path), "-m", "pip", "install",
+         "pytest", "requests", "ruff", "mypy", "pytest-cov"],
         check=True,
         capture_output=True,
         text=True,
         timeout=300,
     )
-    install_steps.append("pytest requests")
+    install_steps.append("pytest requests ruff mypy pytest-cov")
 
     requirements_path = repo_path / "requirements.txt"
     if requirements_path.exists() and requirements_path.read_text().strip():
@@ -791,6 +801,39 @@ def _record_architecture_request(task: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_existing_code_context(task: Dict[str, Any]) -> str:
+    """Build the existing_code block for the dev prompt.
+
+    Returns empty string if the repo does not exist or is empty.
+    Never raises — a failure here must not crash the dev loop.
+    """
+    try:
+        repo_path = _project_repo_path(task)
+        if not repo_path.exists():
+            return ""
+        tree = build_file_tree(repo_path)
+        imports = build_import_map(repo_path)
+        if not tree.data.get("files"):
+            return ""
+        lines: list[str] = ["Existing project structure:"]
+        for rel in tree.data["files"]:
+            info = imports.data.get("modules", {}).get(rel, {})
+            parts: list[str] = []
+            if info.get("classes"):
+                parts.append(f"classes: {', '.join(info['classes'])}")
+            if info.get("functions"):
+                parts.append(f"functions: {', '.join(info['functions'])}")
+            lines.append(
+                f"  {rel}" + (f" ({'; '.join(parts)})" if parts else "")
+            )
+        avail = imports.data.get("available_imports", [])
+        if avail:
+            lines += ["", "Available imports:"] + [f"  {imp}" for imp in avail]
+        return "\n".join(lines)
+    except Exception:
+        return ""  # never crash the dev loop
+
+
 def _build_dev_prompt(
     task: Dict[str, Any],
     description: str,
@@ -807,6 +850,7 @@ def _build_dev_prompt(
         task_context=json.dumps(task, indent=2, ensure_ascii=True),
         attempt_number=attempt_number,
         qa_feedback=qa_feedback_text,
+        existing_code=_build_existing_code_context(task),
     )
 
 
@@ -991,13 +1035,76 @@ def _run_qa_for_artifact(
         status = "fail"
     else:
         dependency_info = _install_project_dependencies(repo_path)
-        result = _run_pytest(repo_path, timeout_seconds=remaining_seconds or 120)
-        qa_logs = (
-            f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
-            + result.stdout
-            + result.stderr
-        )
-        status = "success" if result.returncode == 0 else "fail"
+        python_path = Path(dependency_info["python"])
+
+        # 1. Syntax check (stdlib, instant — no subprocess)
+        syntax_result = syntax_check(artifact_path)
+        if not syntax_result.ok:
+            qa_logs = (
+                f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
+                f"SYNTAX ERROR (pre-pytest):\n{syntax_result.output}\n"
+                f"Details: {json.dumps(syntax_result.data, ensure_ascii=True)}\n"
+            )
+            status = "fail"
+        else:
+            # 2. Lint (ruff — skipped gracefully if not installed)
+            lint_result = run_lint(artifact_path, python_path)
+
+            # 3. Type check (mypy — skipped gracefully if not installed)
+            type_result = run_typecheck(artifact_path, repo_path, python_path)
+
+            # 4. Pytest with coverage (replaces bare _run_pytest)
+            pytest_result = run_pytest_with_coverage(
+                repo_path,
+                python_path,
+                timeout=remaining_seconds or 120,
+                module_name=_project_slug(task),
+            )
+
+            # 5. Assemble qa_logs for LLM summarizer
+            if lint_result.error:
+                lint_section = f"LINT (ruff) [unavailable: {lint_result.error}]"
+            else:
+                lint_section = (
+                    f"LINT (ruff): {'OK' if lint_result.ok else 'ISSUES FOUND'}\n"
+                    + json.dumps(
+                        lint_result.data.get("issues", [])[:20],
+                        ensure_ascii=True,
+                    )
+                )
+
+            if type_result.error:
+                type_section = (
+                    f"TYPE CHECK (mypy) [unavailable: {type_result.error}]"
+                )
+            else:
+                type_section = (
+                    f"TYPE CHECK (mypy): {'OK' if type_result.ok else 'ERRORS FOUND'}\n"
+                    + json.dumps(
+                        type_result.data.get("errors", [])[:20],
+                        ensure_ascii=True,
+                    )
+                )
+
+            cov = pytest_result.data.get("coverage")
+            cov_section = (
+                f"Coverage: {cov['percent']:.1f}%"
+                f" ({cov['covered_lines']}/{cov['total_lines']} lines)\n"
+                if cov
+                else "Coverage: not available\n"
+            )
+            qa_logs = (
+                f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
+                f"SYNTAX: OK\n\n"
+                f"{lint_section}\n\n"
+                f"{type_section}\n\n"
+                f"PYTEST:\n"
+                f"{pytest_result.data.get('stdout', '')}"
+                f"{pytest_result.data.get('stderr', '')}\n"
+                f"{cov_section}"
+            )
+            status = "success" if pytest_result.ok else "fail"
+
         summary = _summarize_qa_result(description, qa_logs, status)
 
     qa_dir = repo_path / "documents" / "qa"

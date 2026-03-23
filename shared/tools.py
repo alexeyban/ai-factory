@@ -1,0 +1,404 @@
+"""Local skills for AI Factory agents.
+
+All tools are deterministic, run locally inside Docker containers,
+and never make LLM/AI model calls. Each returns a ToolResult dict.
+"""
+import ast
+import json
+import re
+import subprocess
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from shared.git import run_git
+
+MAX_IMPORTABLE_SYMBOLS = 50
+
+
+@dataclass
+class ToolResult:
+    """Uniform return type for all local skills."""
+
+    ok: bool
+    output: str  # raw text (stdout+stderr or repr)
+    data: dict   # parsed structured data (tool-specific)
+    error: str = ""  # non-empty only if the tool itself failed to run
+
+
+# ---------------------------------------------------------------------------
+# 1. Syntax check
+# ---------------------------------------------------------------------------
+
+
+def syntax_check(file_path: Path) -> ToolResult:
+    """Parse file_path with ast.parse(). No subprocess — stdlib only.
+
+    data = {errors: [{line, col, message}], summary: str}
+    ok=False means the file has syntax errors; QA should not run pytest.
+    """
+    try:
+        source = file_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return ToolResult(
+            ok=False,
+            output="",
+            data={"errors": [], "summary": ""},
+            error=f"cannot read file: {exc}",
+        )
+    try:
+        ast.parse(source, filename=str(file_path))
+        return ToolResult(
+            ok=True,
+            output="syntax ok",
+            data={"errors": [], "summary": "No syntax errors found."},
+        )
+    except SyntaxError as exc:
+        errors = [{"line": exc.lineno, "col": exc.offset, "message": exc.msg}]
+        return ToolResult(
+            ok=False,
+            output=str(exc),
+            data={
+                "errors": errors,
+                "summary": f"SyntaxError at line {exc.lineno}: {exc.msg}",
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# 2. File tree
+# ---------------------------------------------------------------------------
+
+
+def build_file_tree(repo_path: Path) -> ToolResult:
+    """Recursively list .py files, excluding .venv/.
+
+    data = {files: [...], test_files: [...], total: int}
+    """
+    all_py: list[str] = []
+    test_py: list[str] = []
+    for p in sorted(repo_path.rglob("*.py")):
+        parts = p.relative_to(repo_path).parts
+        if ".venv" in parts:
+            continue
+        rel = str(p.relative_to(repo_path))
+        all_py.append(rel)
+        if parts[0] == "tests" or p.stem.startswith("test_"):
+            test_py.append(rel)
+    data = {"files": all_py, "test_files": test_py, "total": len(all_py)}
+    return ToolResult(ok=True, output="\n".join(all_py), data=data)
+
+
+# ---------------------------------------------------------------------------
+# 3. Import map
+# ---------------------------------------------------------------------------
+
+
+def build_import_map(repo_path: Path) -> ToolResult:
+    """Extract top-level classes and public functions from each .py file.
+
+    Excludes .venv/ and tests/. Caps total available_imports at MAX_IMPORTABLE_SYMBOLS.
+
+    data = {
+        modules: {"rel/path.py": {imports, classes, functions}},
+        available_imports: ["from module import Symbol", ...]
+    }
+    """
+    modules: dict[str, dict] = {}
+    available_imports: list[str] = []
+    symbol_count = 0
+
+    for p in sorted(repo_path.rglob("*.py")):
+        parts = p.relative_to(repo_path).parts
+        if ".venv" in parts or (parts and parts[0] == "tests"):
+            continue
+        rel = str(p.relative_to(repo_path))
+        try:
+            source = p.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(p))
+        except (OSError, SyntaxError):
+            continue
+
+        imports: list[str] = []
+        classes: list[str] = []
+        functions: list[str] = []
+
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                for alias in node.names:
+                    imports.append(alias.asname or alias.name)
+            elif isinstance(node, ast.ClassDef):
+                classes.append(node.name)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if not node.name.startswith("_"):
+                    functions.append(node.name)
+
+        modules[rel] = {
+            "imports": imports,
+            "classes": classes,
+            "functions": functions,
+        }
+
+        module_dotted = rel.replace("/", ".").removesuffix(".py")
+        for name in classes + functions:
+            if symbol_count >= MAX_IMPORTABLE_SYMBOLS:
+                break
+            available_imports.append(f"from {module_dotted} import {name}")
+            symbol_count += 1
+
+    data = {"modules": modules, "available_imports": available_imports}
+    return ToolResult(
+        ok=True, output=f"{len(modules)} modules scanned", data=data
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. Lint (ruff)
+# ---------------------------------------------------------------------------
+
+
+def run_lint(file_path: Path, python_path: Path) -> ToolResult:
+    """Run ruff check via the project venv. Gracefully skipped if ruff absent.
+
+    data = {issues: [{file, line, col, code, message}], error_count, warning_count}
+    ok=False means lint issues were found (not that ruff failed to run).
+    error non-empty means ruff was not available or crashed.
+    """
+    ruff_path = python_path.parent / "ruff"
+    if not ruff_path.exists():
+        return ToolResult(
+            ok=False,
+            output="",
+            data={"issues": [], "error_count": 0, "warning_count": 0},
+            error="ruff not available in venv",
+        )
+    try:
+        proc = subprocess.run(
+            [str(ruff_path), "check", "--output-format=json", str(file_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        return ToolResult(
+            ok=False,
+            output="",
+            data={"issues": [], "error_count": 0, "warning_count": 0},
+            error=str(exc),
+        )
+
+    issues: list[dict] = []
+    try:
+        raw = json.loads(proc.stdout) if proc.stdout.strip() else []
+        for item in raw:
+            issues.append(
+                {
+                    "file": item.get("filename", ""),
+                    "line": item.get("location", {}).get("row", 0),
+                    "col": item.get("location", {}).get("column", 0),
+                    "code": item.get("code", ""),
+                    "message": item.get("message", ""),
+                }
+            )
+    except json.JSONDecodeError:
+        pass
+
+    error_count = sum(1 for i in issues if not i["code"].startswith("W"))
+    warning_count = len(issues) - error_count
+    ok = proc.returncode == 0
+    data = {
+        "issues": issues,
+        "error_count": error_count,
+        "warning_count": warning_count,
+    }
+    return ToolResult(ok=ok, output=proc.stdout + proc.stderr, data=data)
+
+
+# ---------------------------------------------------------------------------
+# 5. Type check (mypy)
+# ---------------------------------------------------------------------------
+
+
+def run_typecheck(
+    file_path: Path, repo_path: Path, python_path: Path
+) -> ToolResult:
+    """Run mypy --output json. Gracefully skipped if mypy absent.
+
+    data = {errors: [{file, line, message, severity}], error_count}
+    ok=False means type errors found (not that mypy failed to run).
+    error non-empty means mypy was not available or crashed.
+    """
+    mypy_path = python_path.parent / "mypy"
+    if not mypy_path.exists():
+        return ToolResult(
+            ok=False,
+            output="",
+            data={"errors": [], "error_count": 0},
+            error="mypy not available in venv",
+        )
+    try:
+        proc = subprocess.run(
+            [
+                str(mypy_path),
+                "--no-error-summary",
+                "--output",
+                "json",
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(repo_path),
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        return ToolResult(
+            ok=False,
+            output="",
+            data={"errors": [], "error_count": 0},
+            error=str(exc),
+        )
+
+    errors: list[dict] = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            errors.append(
+                {
+                    "file": obj.get("file", ""),
+                    "line": obj.get("line", 0),
+                    "message": obj.get("message", ""),
+                    "severity": obj.get("severity", "error"),
+                }
+            )
+        except json.JSONDecodeError:
+            continue  # skip non-JSON header lines
+
+    ok = proc.returncode == 0
+    data = {"errors": errors, "error_count": len(errors)}
+    return ToolResult(ok=ok, output=proc.stdout + proc.stderr, data=data)
+
+
+# ---------------------------------------------------------------------------
+# 6. Pytest with coverage
+# ---------------------------------------------------------------------------
+
+
+def run_pytest_with_coverage(
+    repo_path: Path,
+    python_path: Path,
+    timeout: int,
+    module_name: str,
+) -> ToolResult:
+    """Run pytest with --cov. Falls back gracefully if pytest-cov missing.
+
+    data = {returncode, stdout, stderr,
+            coverage: {percent, covered_lines, total_lines, missing_lines} | None}
+    """
+    cov_report_file = Path(tempfile.mktemp(suffix=".json"))
+    cmd = [
+        str(python_path),
+        "-m",
+        "pytest",
+        str(repo_path),
+        "-v",
+        f"--cov={module_name}",
+        f"--cov-report=json:{cov_report_file}",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=max(30, timeout),
+            cwd=str(repo_path),
+        )
+    except subprocess.TimeoutExpired as exc:
+        return ToolResult(
+            ok=False,
+            output=f"pytest timed out after {timeout}s",
+            data={
+                "returncode": -1,
+                "stdout": "",
+                "stderr": str(exc),
+                "coverage": None,
+            },
+            error="timeout",
+        )
+
+    coverage: Optional[dict] = None
+    if cov_report_file.exists():
+        try:
+            raw = json.loads(cov_report_file.read_text())
+            totals = raw.get("totals", {})
+            coverage = {
+                "percent": totals.get("percent_covered", 0.0),
+                "covered_lines": totals.get("covered_lines", 0),
+                "total_lines": totals.get("num_statements", 0),
+                "missing_lines": totals.get("missing_lines", []),
+            }
+        except (json.JSONDecodeError, KeyError):
+            coverage = None
+        try:
+            cov_report_file.unlink()
+        except OSError:
+            pass
+
+    ok = proc.returncode == 0
+    data = {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+        "coverage": coverage,
+    }
+    return ToolResult(ok=ok, output=proc.stdout + proc.stderr, data=data)
+
+
+# ---------------------------------------------------------------------------
+# 7. Git diff
+# ---------------------------------------------------------------------------
+
+
+def run_git_diff(
+    repo_path: Path, base_branch: str, target_branch: str
+) -> ToolResult:
+    """Show git diff between two branches.
+
+    data = {stat, diff, files_changed, insertions, deletions}
+    """
+    ref = f"{base_branch}..{target_branch}"
+    try:
+        stat_result = run_git(repo_path, ["diff", ref, "--stat"], check=False)
+        diff_result = run_git(repo_path, ["diff", ref], check=False)
+    except Exception as exc:
+        return ToolResult(ok=False, output="", data={}, error=str(exc))
+
+    stat_text = stat_result.stdout.strip()
+    diff_text = diff_result.stdout.strip()
+
+    files_changed = insertions = deletions = 0
+    m = re.search(r"(\d+) file", stat_text)
+    if m:
+        files_changed = int(m.group(1))
+    m = re.search(r"(\d+) insertion", stat_text)
+    if m:
+        insertions = int(m.group(1))
+    m = re.search(r"(\d+) deletion", stat_text)
+    if m:
+        deletions = int(m.group(1))
+
+    data = {
+        "stat": stat_text,
+        "diff": diff_text,
+        "files_changed": files_changed,
+        "insertions": insertions,
+        "deletions": deletions,
+    }
+    ok = stat_result.returncode == 0 and diff_result.returncode == 0
+    return ToolResult(ok=ok, output=stat_text, data=data)
