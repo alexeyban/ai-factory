@@ -95,6 +95,15 @@ async def main():
         },
     }
 
+    # Ensure the task branch exists (QA checks it out before running tests)
+    repo_path = _project_repo_path(task)
+    branch_name = _task_branch(task)
+    if not branch_exists(repo_path, branch_name):
+        print(f"Creating task branch: {branch_name}")
+        ensure_branch(repo_path, branch_name, base_branch="main")
+    else:
+        print(f"Using existing branch: {branch_name}")
+
     sep = "=" * 70
     print(f"\n{sep}")
     print(f"QA isolation test")
