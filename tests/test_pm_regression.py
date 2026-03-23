@@ -142,6 +142,8 @@ def test_stale_cache_rejected_for_different_workflow(tmp_path):
     """
     from orchestrator.activities import _save_task_state, _load_task_state  # noqa: PLC0415
 
+    (tmp_path / ".ai_factory" / "tasks").mkdir(parents=True)
+
     old_state = {
         "task_id": "T99",
         "status": "success",
