@@ -1,11 +1,15 @@
-"""End-to-end smoke test: launch a tiny workflow and wait for completion.
+"""End-to-end smoke test: launch a tiny workflow against a real GitHub repo.
 
 Usage:
-    .venv/bin/python scripts/run_e2e_test.py
+    PYTHONPATH=. .venv/bin/python scripts/run_e2e_test.py
 
-The workflow creates a minimal Python project (a simple calculator library
-with unit tests) — expected to produce 2-4 tasks, exercise PM → architect →
-decomposer → dev → QA → analyst, and finish in under 30 minutes.
+The workflow targets https://github.com/alexeyban/calclib — a minimal Python
+calculator library. Expected: PM → architect → decomposer → dev → QA →
+analyst, producing a small number of tasks.
+
+Exit codes:
+    0 — all tasks succeeded
+    1 — one or more tasks failed, or workflow itself failed
 """
 import asyncio
 import json
@@ -17,21 +21,21 @@ from temporalio.client import Client
 
 from orchestrator.workflows import OrchestratorWorkflow
 
-DESCRIPTION = """Create a small Python utility library called `calclib` with the following:
+GITHUB_URL = "https://github.com/alexeyban/calclib"
 
-1. A module `calclib/calc.py` with four functions:
-   - `add(a, b)` — returns a + b
-   - `subtract(a, b)` — returns a - b
-   - `multiply(a, b)` — returns a * b
-   - `divide(a, b)` — returns a / b, raises ValueError if b == 0
+DESCRIPTION = """Improve the calclib Python library at https://github.com/alexeyban/calclib.
 
-2. A test file `tests/test_calc.py` with pytest tests covering:
-   - basic operations
-   - division by zero raises ValueError
+calclib is a minimal Python calculator library with:
+- calclib/calc.py: add, subtract, multiply, divide functions
+- tests/test_calc.py: pytest tests
 
-3. A `README.md` with one-paragraph description of the library.
+Tasks:
+1. Ensure divide raises ValueError on division by zero (add the guard if missing)
+2. Add a `power(base, exp)` function to calclib/calc.py and corresponding tests
+3. Ensure README.md exists with a short description of the library
 
-Keep it simple and minimal. No external dependencies beyond pytest.
+All changes must go into the https://github.com/alexeyban/calclib repository.
+Clone it first, then make changes on a task branch and merge to main.
 """
 
 
@@ -44,12 +48,14 @@ async def main():
         "task_id": workflow_id,
         "description": DESCRIPTION,
         "project_name": "calclib",
+        "github_url": GITHUB_URL,
         "_workflow_id": workflow_id,
     }
 
     print(f"\n{'='*60}")
     print(f"Starting e2e test workflow: {workflow_id}")
-    print(f"Monitor: http://localhost:8080/namespaces/default/workflows/{workflow_id}")
+    print(f"GitHub repo : {GITHUB_URL}")
+    print(f"Monitor     : http://localhost:8080/namespaces/default/workflows/{workflow_id}")
     print(f"{'='*60}\n")
 
     handle = await client.start_workflow(
@@ -60,7 +66,7 @@ async def main():
         execution_timeout=timedelta(hours=1),
     )
 
-    print("Workflow started. Waiting for result (up to 60 min)...")
+    print("Workflow started — waiting for result (up to 60 min)...")
     start = time.time()
 
     try:
@@ -70,43 +76,57 @@ async def main():
         return 1
 
     elapsed = int(time.time() - start)
-    status = result.get("status", "unknown")
+    wf_status = result.get("status", "unknown")
     dev_qa = result.get("dev_qa_results", [])
     analysis = result.get("analysis", {})
 
     print(f"\n{'='*60}")
-    print(f"Workflow finished in {elapsed}s")
-    print(f"Status     : {status}")
-    print(f"Tasks run  : {len(dev_qa)}")
+    print(f"Workflow finished in {elapsed}s  |  status={wf_status}")
+    print(f"Tasks run: {len(dev_qa)}")
+    print()
 
-    ok = all_ok = True
+    any_fail = False
     for r in dev_qa:
         task_status = r.get("status", "?")
-        qa_status = r.get("qa_status", "-")
-        err = r.get("error", "")
-        icon = "✓" if task_status == "success" else "✗"
-        print(f"  {icon} [{r.get('task_id','?')}] status={task_status} qa={qa_status}" + (f" err={err[:80]}" if err else ""))
-        if task_status != "success":
-            ok = False
+        qa_status   = r.get("qa_status", "-")
+        err         = r.get("error") or ""
+        if task_status == "fail" or (task_status != "success"):
+            icon = "FAIL"
+            any_fail = True
+        else:
+            icon = "PASS"
+        line = f"  [{icon}] {r.get('task_id','?')} status={task_status} qa={qa_status}"
+        if err:
+            line += f"  error: {err[:100]}"
+        print(line)
 
-    print(f"\nAnalyst stage : {analysis.get('status', '?')}")
-    print(f"Overall       : {'PASS' if ok and status in ('complete', 'needs_attention') else 'NEEDS REVIEW'}")
+    print()
+    print(f"Analyst: {analysis.get('status', '?')}")
+    overall = "FAIL" if any_fail or wf_status not in ("complete", "needs_attention") else "PASS"
+    print(f"Overall: {overall}")
     print(f"{'='*60}\n")
 
-    # Dump compact summary to file for CI / inspection
+    summary = {
+        "workflow_id": workflow_id,
+        "status": wf_status,
+        "elapsed_s": elapsed,
+        "overall": overall,
+        "tasks": [
+            {
+                "id": r.get("task_id"),
+                "status": r.get("status"),
+                "qa_status": r.get("qa_status"),
+                "error": r.get("error"),
+            }
+            for r in dev_qa
+        ],
+    }
     summary_path = f"/tmp/e2e_{workflow_id}.json"
     with open(summary_path, "w") as f:
-        json.dump({
-            "workflow_id": workflow_id,
-            "status": status,
-            "elapsed_s": elapsed,
-            "tasks": [
-                {"id": r.get("task_id"), "status": r.get("status"), "qa": r.get("qa_status"), "error": r.get("error")}
-                for r in dev_qa
-            ],
-        }, f, indent=2)
-    print(f"Summary written to {summary_path}")
-    return 0 if ok else 1
+        json.dump(summary, f, indent=2)
+    print(f"Summary: {summary_path}")
+
+    return 1 if any_fail else 0
 
 
 if __name__ == "__main__":
