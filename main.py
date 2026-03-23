@@ -24,6 +24,23 @@ async def main():
 
     print(f"Connected to Temporal namespace: {temporal_namespace}")
 
+    # Guard: warn if another workflow is already running (rate limit contention)
+    running = []
+    async for wf in client.list_workflows(
+        f'WorkflowType="OrchestratorWorkflow" AND ExecutionStatus="Running"'
+    ):
+        running.append(wf.id)
+    if running:
+        print(
+            f"\nWARNING: {len(running)} OrchestratorWorkflow(s) already running: {running}\n"
+            "Running multiple workflows simultaneously causes LLM rate limit contention.\n"
+            "Set FORCE_START=true to proceed anyway.\n"
+        )
+        if os.getenv("FORCE_START", "false").lower() != "true":
+            print("Aborting. Set FORCE_START=true to override.")
+            return
+        print("FORCE_START=true — proceeding despite concurrent workflows.")
+
     description = f"""Develop and enhance the Reversi AlphaZero AI project: {GITHUB_PROJECT_URL}
 
 The project implements a self-learning Reversi (Othello) AI using AlphaZero-style reinforcement learning with Monte Carlo Tree Search (MCTS).

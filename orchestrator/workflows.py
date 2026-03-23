@@ -159,6 +159,7 @@ async def _decompose_large_tasks(
                 _require_task_list("decomposer_activity", decomposed), project_context
             )
         )
+        await asyncio.sleep(0)  # yield to prevent TMPRL1101 deadlock
 
     return expanded
 
@@ -255,6 +256,7 @@ async def _dispatch_tasks(
 
             completed[task_id] = result
             remaining.remove(task)
+        await asyncio.sleep(0)  # yield event loop between waves to prevent TMPRL1101
 
     return list(completed.values())
 
@@ -384,7 +386,14 @@ class OrchestratorWorkflow:
                     "description": (
                         f"{initial_task.get('description', '')}\n\n"
                         f"Recovery cycle {recovery_cycle}\n"
-                        f"Previous execution results:\n{dev_qa_results}"
+                        f"Previous execution results:\n"
+                        + json.dumps(
+                            [
+                                {k: r.get(k) for k in ("task_id", "status", "error")}
+                                for r in dev_qa_results[:10]
+                            ],
+                            ensure_ascii=True,
+                        )
                     ),
                 }
 
@@ -600,7 +609,15 @@ class ProjectWorkflow:
                         for r in dev_qa_results
                     ],
                     "description": (
-                        f"{description}\n\nRecovery cycle {recovery_cycle}\nPrevious execution results:\n{dev_qa_results}"
+                        f"{description}\n\nRecovery cycle {recovery_cycle}\n"
+                        "Previous execution results:\n"
+                        + json.dumps(
+                            [
+                                {k: r.get(k) for k in ("task_id", "status", "error")}
+                                for r in dev_qa_results[:10]
+                            ],
+                            ensure_ascii=True,
+                        )
                     ),
                 }
 
