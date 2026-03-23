@@ -580,6 +580,10 @@ class ProjectWorkflow:
                 ),
             ))
 
+            _pm_plan_titles_proj = "\n".join(
+                f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                for t in (pm_result.get("execution_plan") or [])[:30]
+            )
             architect_result = _load_result_from_file(_require_activity_result(
                 "architect_activity",
                 await workflow.execute_activity(
@@ -591,7 +595,7 @@ class ProjectWorkflow:
                         "description": (
                             f"{description}\n\nPM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
                             f"PM architect guidance:\n{pm_result.get('architect_guidance', [])}\n\n"
-                            f"PM execution plan:\n{pm_result.get('execution_plan', [])}"
+                            f"PM execution plan tasks:\n{_pm_plan_titles_proj}"
                         ),
                     },
                     start_to_close_timeout=timedelta(
