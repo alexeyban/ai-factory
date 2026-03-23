@@ -32,6 +32,7 @@ from shared.tools import (
     ToolResult,
     build_file_tree,
     build_import_map,
+    get_task_error_history,
     run_lint,
     run_pytest_with_coverage,
     run_typecheck,
