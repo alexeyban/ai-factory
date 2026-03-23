@@ -435,12 +435,46 @@ def _task_branch(task: Dict[str, Any]) -> str:
 
 
 def _task_module_path(task: Dict[str, Any], repo_path: Path) -> Path:
+    """Return the primary output file path for this task.
+
+    Priority:
+    1. output.files[0] from the task contract (most accurate)
+    2. Module: <file.py> pattern in description (legacy)
+    3. Fallback: {package}/{task_slug}.py
+    """
+    output_files = task.get("output", {}).get("files", [])
+    if output_files:
+        candidate = str(output_files[0]).strip()
+        if candidate:
+            return repo_path / candidate
     description = task.get("description", "")
     module_match = re.search(r"Module:\s*([A-Za-z0-9_./-]+\.py)", description)
     if module_match:
         return repo_path / module_match.group(1)
     package_name = _project_package_name(task)
     return repo_path / package_name / f"{_task_slug(task)}.py"
+
+
+def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
+    """Parse LLM output that may contain multiple files using === FILE: path === headers.
+
+    Returns list of (relative_path, content) tuples.
+    If no FILE headers are found, returns an empty list (caller uses single-file path).
+    """
+    pattern = re.compile(r"^=== FILE: (.+?) ===\s*$", re.MULTILINE)
+    matches = list(pattern.finditer(code))
+    if not matches:
+        return []
+    files = []
+    for i, match in enumerate(matches):
+        path = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(code)
+        content = code[start:end].strip("\n")
+        # Strip trailing code fence if present
+        content = re.sub(r"```\s*$", "", content).strip()
+        files.append((path, content))
+    return files
 
 
 def _write_markdown(path: Path, title: str, body: str) -> None:
