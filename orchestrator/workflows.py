@@ -691,7 +691,56 @@ class ProjectWorkflow:
                 tasks, _project_context(initial_task, pm_result), retry_policy
             )
 
+            _PM_RETRY_LIMIT = 2
+            _pm_retry = 0
+            while not tasks and _pm_retry < _PM_RETRY_LIMIT:
+                _pm_retry += 1
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks from architect (attempt {_pm_retry}/{_PM_RETRY_LIMIT}). "
+                    f"Retrying PM with stripped-down prompt."
+                )
+                stripped_task = {**initial_task, "_pm_retry": _pm_retry}
+                pm_result = _load_result_from_file(_require_activity_result(
+                    "pm_activity",
+                    await workflow.execute_activity(
+                        pm_activity,
+                        stripped_task,
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                ))
+                _pm_plan_titles_proj = "\n".join(
+                    f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                    for t in (pm_result.get("execution_plan") or [])[:30]
+                )
+                architect_result = _load_result_from_file(_require_activity_result(
+                    "architect_activity",
+                    await workflow.execute_activity(
+                        architect_activity,
+                        {
+                            **stripped_task,
+                            "project_name": pm_result.get("project_name", project_name),
+                            "project_repo_path": pm_result.get("project_repo_path"),
+                            "description": (
+                                f"{description}\n\n"
+                                f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                                f"PM execution plan tasks:\n{_pm_plan_titles_proj}"
+                            ),
+                        },
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                ))
+                tasks = await _prepare_execution_tasks(
+                    architect_result.get("tasks", []),
+                    _project_context(initial_task, pm_result),
+                    retry_policy,
+                )
+
             if not tasks:
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks after {_pm_retry} PM retries; aborting"
+                )
                 return {
                     "status": "complete",
                     "project_name": project_name,
