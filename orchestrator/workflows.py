@@ -69,6 +69,10 @@ def _pick_activity(task: Dict[str, Any]):
 TASK_DECOMPOSITION_TOKEN_LIMIT = int(
     os.getenv("TASK_DECOMPOSITION_TOKEN_LIMIT", "8000")
 )
+MAX_WAVE_SIZE = int(os.getenv("MAX_WAVE_SIZE", "20"))
+INTER_WAVE_RATE_LIMIT_DELAY_SECONDS = int(
+    os.getenv("INTER_WAVE_RATE_LIMIT_DELAY_SECONDS", "30")
+)
 
 
 def _raise_non_retryable_python_failure(exc: Exception) -> NoReturn:
