@@ -389,8 +389,8 @@ def clone_or_pull_project(
     repo_path.parent.mkdir(parents=True, exist_ok=True)
 
     if repo_path.exists() and (repo_path / ".git").exists():
-        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
-        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME], check=False)
+        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL], check=False)
         result = run_git(repo_path, ["rev-parse", "--verify", "HEAD"], check=False)
         if result.returncode == 0:
             run_git(repo_path, ["fetch", "origin"], check=False)
@@ -414,8 +414,8 @@ def clone_or_pull_project(
                 text=True,
             )
 
-        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
-        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+        run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME], check=False)
+        run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL], check=False)
 
     return repo_path
 
