@@ -117,7 +117,8 @@ def _wrap_activity_result(
     if start_time:
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
-    output_dir = Path("/workspace/.ai_factory/contexts") / workflow_id
+    _ai_factory_root = Path(os.getenv("AI_FACTORY_ROOT", "/workspace/.ai_factory"))
+    output_dir = _ai_factory_root / "contexts" / workflow_id
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"output_{stage}.json"
 
