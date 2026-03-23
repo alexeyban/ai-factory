@@ -249,6 +249,7 @@ async def _dispatch_tasks(
     completed: dict[str, Dict[str, Any]] = {}  # task_id → result
     remaining = list(tasks)
     wave = 0
+    prev_wave_had_rate_limit = False
 
     while remaining:
         ready = [
@@ -263,14 +264,30 @@ async def _dispatch_tasks(
             )
             ready = list(remaining)
 
+        # Cap wave size to avoid overwhelming LLM rate limits on large projects
+        if len(ready) > MAX_WAVE_SIZE:
+            workflow.logger.info(
+                f"[{workflow_id}] Wave too large ({len(ready)} tasks), capping at {MAX_WAVE_SIZE}"
+            )
+            ready = ready[:MAX_WAVE_SIZE]
+
         wave += 1
         ready_ids = [t.get("task_id") for t in ready]
         workflow.logger.info(
             f"[{workflow_id}] Wave {wave}: dispatching {len(ready)} tasks {ready_ids}"
         )
 
+        # Add inter-wave delay after a wave that hit rate limits
+        if prev_wave_had_rate_limit:
+            workflow.logger.info(
+                f"[{workflow_id}] Previous wave had rate-limit failures; "
+                f"waiting {INTER_WAVE_RATE_LIMIT_DELAY_SECONDS}s before next wave"
+            )
+            await asyncio.sleep(INTER_WAVE_RATE_LIMIT_DELAY_SECONDS)
+
         raw = await asyncio.gather(*[_run_one(t) for t in ready], return_exceptions=True)
 
+        prev_wave_had_rate_limit = False
         for task, outcome in zip(ready, raw):
             task_id = task.get("task_id", "unknown")
             if isinstance(outcome, BaseException):
@@ -278,8 +295,15 @@ async def _dispatch_tasks(
                     f"[{workflow_id}] Task {task_id} raised: {outcome}"
                 )
                 result = _make_error(task, str(outcome))
+                if "429" in str(outcome) or "rate" in str(outcome).lower():
+                    prev_wave_had_rate_limit = True
             elif isinstance(outcome, Mapping):
                 result = dict(outcome)
+                if result.get("status") == "error" and (
+                    "429" in str(result.get("error", ""))
+                    or "rate" in str(result.get("error", "")).lower()
+                ):
+                    prev_wave_had_rate_limit = True
             else:
                 result = _make_error(task, f"Unexpected result type: {type(outcome).__name__}")
 
