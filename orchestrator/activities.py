@@ -14,6 +14,8 @@ from temporalio.common import RetryPolicy
 
 from agents.decomposer.agent import DecomposerAgent, normalize_task_contract
 from shared.git import (
+    _github_api_token,
+    _github_repo_slug,
     bootstrap_from_remote,
     branch_exists,
     commit_all,
