@@ -424,7 +424,7 @@ class OrchestratorWorkflow:
                     ),
                 }
 
-                pm_recovery_result = _require_activity_result(
+                pm_recovery_result = _load_result_from_file(_require_activity_result(
                     "pm_recovery_activity",
                     await workflow.execute_activity(
                         pm_recovery_activity,
@@ -434,9 +434,9 @@ class OrchestratorWorkflow:
                         ),
                         retry_policy=retry_policy,
                     ),
-                )
+                ))
 
-                recovery_architect_result = _require_activity_result(
+                recovery_architect_result = _load_result_from_file(_require_activity_result(
                     "architect_activity",
                     await workflow.execute_activity(
                         architect_activity,
@@ -454,7 +454,7 @@ class OrchestratorWorkflow:
                         ),
                         retry_policy=retry_policy,
                     ),
-                )
+                ))
 
                 recovery_tasks = recovery_architect_result.get("tasks", [])
                 recovery_tasks = await _prepare_execution_tasks(
@@ -648,7 +648,7 @@ class ProjectWorkflow:
                     ),
                 }
 
-                pm_recovery_result = _require_activity_result(
+                pm_recovery_result = _load_result_from_file(_require_activity_result(
                     "pm_recovery_activity",
                     await workflow.execute_activity(
                         pm_recovery_activity,
@@ -658,9 +658,9 @@ class ProjectWorkflow:
                         ),
                         retry_policy=retry_policy,
                     ),
-                )
+                ))
 
-                recovery_architect_result = _require_activity_result(
+                recovery_architect_result = _load_result_from_file(_require_activity_result(
                     "architect_activity",
                     await workflow.execute_activity(
                         architect_activity,
@@ -678,7 +678,7 @@ class ProjectWorkflow:
                         ),
                         retry_policy=retry_policy,
                     ),
-                )
+                ))
 
                 recovery_tasks = recovery_architect_result.get("tasks", [])
                 recovery_tasks = await _prepare_execution_tasks(
