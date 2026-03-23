@@ -396,24 +396,41 @@ def get_task_error_history(repo_path: Path, task_id: str) -> ToolResult:
         )
 
     attempts: list[dict] = []
-    history = state.get("attempts", [])
-    # Also handle flat state where each key is attempt_N
-    if not history and state.get("attempt"):
-        history = [state]
+    # task state uses "healing_history" list of {attempt, dev, qa} entries
+    history = state.get("healing_history", state.get("attempts", []))
+    # Flat state (single attempt recorded directly)
+    if not history and state.get("last_qa_result"):
+        history = [{
+            "attempt": state.get("attempts", 1),
+            "qa": state.get("last_qa_result", {}),
+            "dev": state.get("last_dev_result", {}),
+        }]
 
     for entry in history:
         attempt_num = entry.get("attempt", entry.get("attempt_number", "?"))
-        error = entry.get("error", "")
+        dev = entry.get("dev", {}) or {}
         qa = entry.get("qa", {}) or {}
+        error = dev.get("error", entry.get("error", ""))
         qa_status = qa.get("status", entry.get("status", ""))
-        qa_summary = qa.get("summary", entry.get("qa_summary", ""))[:500]
-        approach = entry.get("approach", "")
+        # QA summary may be a dict (from _summarize_qa_result) or a string
+        qa_summary_raw = qa.get("summary", entry.get("qa_summary", ""))
+        if isinstance(qa_summary_raw, dict):
+            qa_summary = (
+                qa_summary_raw.get("error_summary", "")
+                or qa_summary_raw.get("root_cause", "")
+                or str(qa_summary_raw)
+            )[:500]
+        else:
+            qa_summary = str(qa_summary_raw)[:500]
+        # logs give extra context (first 300 chars)
+        qa_logs_snippet = str(qa.get("logs", ""))[:300]
         attempts.append({
             "attempt": attempt_num,
             "error": str(error)[:300] if error else "",
             "qa_status": qa_status,
             "qa_summary": qa_summary,
-            "approach_tried": approach,
+            "qa_logs_snippet": qa_logs_snippet,
+            "approach_tried": dev.get("mode", ""),
         })
 
     failures = [a for a in attempts if a["qa_status"] not in ("success", "complete", "")]
