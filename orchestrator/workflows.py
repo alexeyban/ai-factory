@@ -309,7 +309,7 @@ class OrchestratorWorkflow:
                 f"[{workflow_id}] Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')[:100]}"
             )
 
-            pm_result = _require_activity_result(
+            pm_envelope = _require_activity_result(
                 "pm_activity",
                 await workflow.execute_activity(
                     pm_activity,
@@ -320,6 +320,7 @@ class OrchestratorWorkflow:
                     retry_policy=retry_policy,
                 ),
             )
+            pm_result = _load_result_from_file(pm_envelope)
 
             workflow.logger.info(
                 f"[{workflow_id}] PM completed, generated {len(pm_result.get('execution_plan', []))} planned assignments"
@@ -339,7 +340,7 @@ class OrchestratorWorkflow:
                 ),
             }
 
-            architect_result = _require_activity_result(
+            architect_envelope = _require_activity_result(
                 "architect_activity",
                 await workflow.execute_activity(
                     architect_activity,
@@ -350,6 +351,7 @@ class OrchestratorWorkflow:
                     retry_policy=retry_policy,
                 ),
             )
+            architect_result = _load_result_from_file(architect_envelope)
 
             workflow.logger.info(
                 f"[{workflow_id}] Architect completed, got {len(architect_result.get('tasks', []))} tasks"
