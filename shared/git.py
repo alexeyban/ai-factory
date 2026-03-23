@@ -281,7 +281,6 @@ def create_and_merge_github_pr(
     Returns ok=False (no exception) when no token or not a GitHub remote.
     """
     import logging
-    import requests
 
     _log = logging.getLogger(__name__)
 
