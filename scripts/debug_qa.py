@@ -46,6 +46,8 @@ os.environ.setdefault("WORKSPACE_ROOT",  "/tmp/ai-factory-debug")
 os.environ.setdefault("AI_FACTORY_ROOT", "/tmp/ai-factory-debug/.ai_factory")
 
 from orchestrator.activities import qa_activity  # noqa: E402
+from shared.git import branch_exists, ensure_branch, run_git
+from orchestrator.activities import _task_branch, _project_repo_path  # noqa: E402
 
 GITHUB_URL   = os.getenv("GITHUB_URL",   "https://github.com/alexeyban/calclib")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "calclib")
