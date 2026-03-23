@@ -313,13 +313,14 @@ def _install_project_dependencies(repo_path: Path) -> Dict[str, Any]:
     python_path = _ensure_project_python_env(repo_path)
     install_steps: List[str] = []
     subprocess.run(
-        [str(python_path), "-m", "pip", "install", "pytest", "requests"],
+        [str(python_path), "-m", "pip", "install",
+         "pytest", "requests", "ruff", "mypy", "pytest-cov"],
         check=True,
         capture_output=True,
         text=True,
         timeout=300,
     )
-    install_steps.append("pytest requests")
+    install_steps.append("pytest requests ruff mypy pytest-cov")
 
     requirements_path = repo_path / "requirements.txt"
     if requirements_path.exists() and requirements_path.read_text().strip():
