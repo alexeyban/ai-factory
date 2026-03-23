@@ -160,6 +160,27 @@ Stop the stack:
 docker compose down --remove-orphans
 ```
 
+## Pipeline Status (2026-03-23)
+
+The core pipeline is functional end-to-end. Recent fixes resolved the major failure modes:
+
+| Issue | Status |
+|-------|--------|
+| PM / architect / decomposer returning `status: null` in slim envelopes | Fixed |
+| Decomposer receiving full PM execution plan as raw text (payload overflow) | Fixed |
+| Task cache returning stale "success" from previous workflow runs | Fixed |
+| Concurrent `git config` calls returning exit 255 on shared repos | Fixed |
+| `TMPRL1101` deadlock from oversized recovery description strings | Fixed |
+| Per-type agent containers isolating dev / qa / setup / docs / refactor queues | Done |
+| GitHub PR auto-merge via REST API (`shared/git.py`) | Done |
+| SSH auth with agent socket + HTTPS token fallback for git push | Done |
+
+Known limitations still present:
+- Large projects (100+ tasks) can generate decomposed wave sizes that stress LLM rate limits.
+- GitHub PR merge occasionally fails if branch protection rules are active on the target repo.
+- The Kafka standalone agent path lags behind the Temporal implementation.
+- Generated code quality depends heavily on LLM provider capacity and model choice.
+
 ## Current Limitations
 
 - The Kafka standalone agent path still lags behind the Temporal-first path.
