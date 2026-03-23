@@ -117,6 +117,9 @@ def test_task_state_includes_workflow_id(tmp_path):
     """
     from orchestrator.activities import _save_task_state, _load_task_state  # noqa: PLC0415
 
+    # _save_task_state writes to <repo>/.ai_factory/tasks/ — create it first
+    (tmp_path / ".ai_factory" / "tasks").mkdir(parents=True)
+
     state = {
         "task_id": "T42",
         "status": "success",
