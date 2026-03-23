@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
+import requests
+
 
 DEFAULT_GIT_USER_NAME = os.getenv("AI_FACTORY_GIT_USER_NAME", "AI Factory Bot")
 DEFAULT_GIT_USER_EMAIL = os.getenv(
