@@ -16,7 +16,7 @@ DEFAULT_GITHUB_OWNER = os.getenv("GITHUB_OWNER", "alexeyban")
 DEFAULT_PROJECT_REPO = os.getenv(
     "DEFAULT_PROJECT_REPO", "git@github.com:alexeyban/reversi-alpha-zero.git"
 )
-PROJECTS_ROOT = Path("/workspace/projects")
+PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", "/workspace/projects"))
 
 
 def slugify(value: str, separator: str = "_") -> str:
