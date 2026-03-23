@@ -1252,6 +1252,7 @@ def _normalize_task(
 
     normalized = normalize_task_contract(task, project_context=context)
     normalized.setdefault("task_id", str(uuid.uuid4()))
+    normalized.setdefault("assigned_agent", "dev")
     normalized["project_name"] = context.get("project_name", "project")
     normalized["project_repo_path"] = context.get("project_repo_path", "")
     # Store a short description reference rather than the full 40k+ project description
