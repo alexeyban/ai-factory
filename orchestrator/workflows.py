@@ -110,13 +110,16 @@ def _load_result_from_file(envelope: Dict[str, Any]) -> Dict[str, Any]:
 
     Context files are immutable once written — reading them directly is safe
     on workflow replay because the content never changes between runs.
+    Uses sandbox_unrestricted() to bypass Temporal's I/O sandbox for this
+    deterministic file read.
     """
     context_file = envelope.get("_context_file")
     if not context_file:
         return envelope
 
     try:
-        data = json.loads(Path(context_file).read_text(encoding="utf-8"))
+        with workflow.unsafe.sandbox_unrestricted():
+            data = json.loads(Path(context_file).read_text(encoding="utf-8"))
         data.pop("_meta", None)
         return data
     except Exception as exc:
