@@ -391,7 +391,8 @@ def _task_title(task: Dict[str, Any]) -> str:
 
 
 def _task_slug(task: Dict[str, Any]) -> str:
-    return slugify(_task_title(task), separator="_")
+    title = task.get("title") or task.get("name") or task.get("task_id") or "task"
+    return slugify(title[:60], separator="_")
 
 
 def _task_branch(task: Dict[str, Any]) -> str:
