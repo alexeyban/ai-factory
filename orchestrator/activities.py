@@ -395,7 +395,13 @@ def _task_slug(task: Dict[str, Any]) -> str:
 
 
 def _task_branch(task: Dict[str, Any]) -> str:
-    return f"task/{_task_slug(task)}"
+    # Use task_id as branch name fallback to avoid giant slugs from description fields
+    title = task.get("title") or task.get("name")
+    if title:
+        slug = slugify(title[:60], separator="_")
+    else:
+        slug = (task.get("task_id") or "task")[:50]
+    return f"task/{slug}"
 
 
 def _task_module_path(task: Dict[str, Any], repo_path: Path) -> Path:
