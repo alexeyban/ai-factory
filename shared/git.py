@@ -162,6 +162,11 @@ def bootstrap_from_remote(
         )
         if checkout_result.returncode != 0:
             return False
+    else:
+        # Sync local branch to remote — remote is authoritative (merge commits from PRs
+        # may have advanced it since the last local commit).
+        run_git(repo_path, ["checkout", branch_name], check=False)
+        run_git(repo_path, ["reset", "--hard", "FETCH_HEAD"], check=False)
     run_git(
         repo_path,
         ["branch", "--set-upstream-to", remote_ref, branch_name],
