@@ -26,10 +26,9 @@ async def main():
 
     # Guard: warn if another workflow is already running (rate limit contention)
     running = []
-    async for wf in client.list_workflows(
-        f'WorkflowType="OrchestratorWorkflow" AND ExecutionStatus="Running"'
-    ):
-        running.append(wf.id)
+    async for wf in client.list_workflows('WorkflowType="OrchestratorWorkflow"'):
+        if str(wf.status) in ("WORKFLOW_EXECUTION_STATUS_RUNNING", "Running", "1"):
+            running.append(wf.id)
     if running:
         print(
             f"\nWARNING: {len(running)} OrchestratorWorkflow(s) already running: {running}\n"
