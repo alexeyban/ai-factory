@@ -42,7 +42,7 @@ RATE_LIMIT_WINDOWS = {
     "gemini": {"max_requests": 10, "window_seconds": 60},
     "opencode": {"max_requests": 60, "window_seconds": 60},
 }
-PROVIDER_COOLDOWN_SECONDS = int(os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(60)))
+PROVIDER_COOLDOWN_SECONDS = int(os.getenv("LLM_PROVIDER_COOLDOWN_SECONDS", str(15)))
 _provider_request_times: dict[str, deque[float]] = {
     provider: deque() for provider in RATE_LIMIT_WINDOWS
 }

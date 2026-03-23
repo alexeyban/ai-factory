@@ -1194,13 +1194,18 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
 
     LOGGER.info("[PM AGENT] Step 3/3: Generating execution plan...")
     plan_start = datetime.now()
+    # Truncate notes to prevent PM prompt from exceeding token limits.
+    # Architect output can be 40-50k chars; the PM prompt template appends
+    # both notes plus the full description, which overwhelms LLM_MAX_PROMPT_TOKENS
+    # and causes the JSON execution_plan to be silently truncated to 0 tasks.
+    _PM_MAX_NOTES_CHARS = 4000
     pm_output = call_llm(
         PM_SYSTEM_PROMPT,
         render_prompt(
             PM_USER_PROMPT,
             task_description=description_full,
-            architect_input=architect_notes,
-            analyst_input=analyst_notes,
+            architect_input=architect_notes[:_PM_MAX_NOTES_CHARS],
+            analyst_input=analyst_notes[:_PM_MAX_NOTES_CHARS],
         ),
     )
     LOGGER.info(
@@ -1392,13 +1397,14 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             ),
         ),
     )
+    _PM_MAX_NOTES_CHARS = 4000
     pm_output = call_llm(
         PM_SYSTEM_PROMPT,
         render_prompt(
             PM_USER_PROMPT,
             task_description=description,
-            architect_input=architect_notes,
-            analyst_input=analyst_notes,
+            architect_input=architect_notes[:_PM_MAX_NOTES_CHARS],
+            analyst_input=analyst_notes[:_PM_MAX_NOTES_CHARS],
         ),
     )
 
