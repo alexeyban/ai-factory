@@ -655,17 +655,25 @@ def _decompose_task(task: Dict[str, Any], project_context: str) -> List[Dict[str
 
 
 @activity.defn
-async def decomposer_activity(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def decomposer_activity(task: Dict[str, Any]) -> Dict[str, Any]:
+    start_time = datetime.now()
     task = _load_activity_input(task)
-    project_context = json.dumps(
-        {
-            "project_name": task.get("project_name"),
-            "project_repo_path": task.get("project_repo_path"),
-            "github_url": task.get("github_url"),
-        },
-        ensure_ascii=True,
-    )
-    return _normalize_task_list(_decompose_task(task, project_context), task)
+    workflow_id = task.get("_workflow_id", "unknown")
+    project_context_dict = {
+        "project_name": task.get("project_name"),
+        "project_repo_path": task.get("project_repo_path"),
+        "github_url": task.get("github_url"),
+    }
+    project_context = json.dumps(project_context_dict, ensure_ascii=True)
+    tasks = _normalize_task_list(_decompose_task(task, project_context), task)
+    result = {
+        "task_id": task.get("task_id"),
+        "stage": "decomposer_done",
+        "decision": "continue",
+        "tasks": tasks,
+        **project_context_dict,
+    }
+    return _wrap_activity_result(workflow_id, f"decomposer_{task.get('task_id', 'unknown')}", result, start_time)
 
 
 def _expand_execution_plan(
