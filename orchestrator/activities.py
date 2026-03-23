@@ -2124,6 +2124,101 @@ async def docs_task(task: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @activity.defn
+async def cleanup_stale_branches_activity(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete remote task-* branches whose tasks completed (success or error).
+
+    Called at the end of OrchestratorWorkflow after all tasks are processed.
+    Uses the GitHub REST API when GITHUB_TOKEN is available; falls back to
+    local `git push origin --delete` for non-GitHub remotes.
+
+    payload keys:
+      project_repo_path  – local path to the generated project repo
+      completed_task_ids – list of task IDs that finished (any status)
+    """
+    import requests as _requests
+
+    repo_path_str = payload.get("project_repo_path", "")
+    completed_ids: list[str] = list(payload.get("completed_task_ids", []))
+    if not repo_path_str:
+        return {"ok": False, "deleted": [], "error": "no project_repo_path"}
+
+    repo_path = Path(repo_path_str)
+    if not repo_path.exists():
+        return {"ok": False, "deleted": [], "error": f"repo_path not found: {repo_path_str}"}
+
+    # Build set of task-branch names that belong to completed tasks
+    completed_branches = {f"task-{tid}" for tid in completed_ids}
+
+    deleted: list[str] = []
+    errors: list[str] = []
+
+    # List all remote branches via git ls-remote
+    ls_result = run_git(repo_path, ["ls-remote", "--heads", "origin"], check=False)
+    if ls_result.returncode != 0:
+        return {"ok": False, "deleted": [], "error": f"ls-remote failed: {ls_result.stderr[:200]}"}
+
+    remote_task_branches: list[str] = []
+    for line in ls_result.stdout.splitlines():
+        # format: "<sha>\trefs/heads/<branch>"
+        parts = line.strip().split("\t")
+        if len(parts) == 2 and parts[1].startswith("refs/heads/task-"):
+            remote_task_branches.append(parts[1].removeprefix("refs/heads/"))
+
+    if not remote_task_branches:
+        LOGGER.info("[cleanup] No task-* branches found on remote")
+        return {"ok": True, "deleted": [], "error": None}
+
+    # Try GitHub API first for a clean delete
+    token = _github_api_token()
+    slug = _github_repo_slug(repo_path)
+
+    for branch in remote_task_branches:
+        if branch not in completed_branches:
+            LOGGER.info("[cleanup] Skipping branch %s (task not in completed set)", branch)
+            continue
+
+        if token and slug:
+            owner, repo = slug
+            del_resp = _requests.delete(
+                f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=15,
+            )
+            if del_resp.status_code in (204, 422):  # 422 = already gone
+                LOGGER.info("[cleanup] Deleted remote branch %s via GitHub API", branch)
+                deleted.append(branch)
+            else:
+                LOGGER.warning(
+                    "[cleanup] GitHub API delete failed for %s (HTTP %d): %s",
+                    branch, del_resp.status_code, del_resp.text[:100],
+                )
+                errors.append(f"{branch}: HTTP {del_resp.status_code}")
+        else:
+            # Fall back to git push --delete
+            del_result = run_git(
+                repo_path, ["push", "origin", "--delete", branch], check=False
+            )
+            if del_result.returncode == 0:
+                LOGGER.info("[cleanup] Deleted remote branch %s via git push", branch)
+                deleted.append(branch)
+            else:
+                LOGGER.warning(
+                    "[cleanup] git push --delete failed for %s: %s",
+                    branch, del_result.stderr[:100],
+                )
+                errors.append(f"{branch}: {del_result.stderr[:100]}")
+
+    LOGGER.info(
+        "[cleanup] Branch cleanup done: %d deleted, %d errors", len(deleted), len(errors)
+    )
+    return {"ok": len(errors) == 0, "deleted": deleted, "error": "; ".join(errors) or None}
+
+
+@activity.defn
 async def process_all_tasks(input_data: Any) -> List[Dict[str, Any]]:
     """Legacy stub — no longer called by OrchestratorWorkflow or ProjectWorkflow.
 
