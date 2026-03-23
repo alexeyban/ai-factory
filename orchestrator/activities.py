@@ -849,6 +849,7 @@ def _build_dev_prompt(
         task_context=json.dumps(task, indent=2, ensure_ascii=True),
         attempt_number=attempt_number,
         qa_feedback=qa_feedback_text,
+        existing_code=_build_existing_code_context(task),
     )
 
 
