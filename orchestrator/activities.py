@@ -2072,7 +2072,7 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
         "continuation": continuation,
         "task_plan": task_plan,
     }
-    _save_task_state(repo_path, task_id, {"status": final_status, "result": result})
+    _save_task_state(repo_path, task_id, {"status": final_status, "workflow_id": workflow_id, "result": result})
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(
