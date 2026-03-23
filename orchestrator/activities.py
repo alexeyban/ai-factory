@@ -361,11 +361,11 @@ def _strip_code_fences(text: str) -> str:
     """Remove markdown code fences if the LLM wrapped the response."""
     import re as _re
     match = _re.search(r"```(?:python|py)?\n(.*?)```", text, _re.DOTALL)
-    if match:
+    if match and match.group(1).strip():
         return match.group(1)
     # Single-backtick fallback
     match = _re.search(r"`{3}(.*?)`{3}", text, _re.DOTALL)
-    if match:
+    if match and match.group(1).strip():
         return match.group(1)
     return text
 
