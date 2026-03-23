@@ -327,7 +327,7 @@ def _project_python(repo_path: Path) -> Path:
 def _ensure_project_python_env(repo_path: Path) -> Path:
     python_path = _project_python(repo_path)
     if not python_path.exists():
-        subprocess.run(["python", "-m", "venv", str(repo_path / ".venv")], check=True)
+        subprocess.run([sys.executable, "-m", "venv", str(repo_path / ".venv")], check=True)
     subprocess.run(
         [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
         check=True,
