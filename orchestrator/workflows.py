@@ -395,16 +395,69 @@ class OrchestratorWorkflow:
             project_context = _project_context(initial_task, pm_result)
             tasks = await _prepare_execution_tasks(tasks, project_context, retry_policy)
 
+            # If architect produced 0 tasks, retry PM with a stripped-down prompt
+            # (description only, no architect/analyst notes) then re-run architect.
+            _PM_RETRY_LIMIT = 2
+            _pm_retry = 0
+            while not tasks and _pm_retry < _PM_RETRY_LIMIT:
+                _pm_retry += 1
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks from architect (attempt {_pm_retry}/{_PM_RETRY_LIMIT}). "
+                    f"Retrying PM with stripped-down prompt."
+                )
+                stripped_task = {
+                    **initial_task,
+                    "description": initial_task.get("description", ""),
+                    "_pm_retry": _pm_retry,
+                }
+                pm_retry_envelope = _require_activity_result(
+                    "pm_activity",
+                    await workflow.execute_activity(
+                        pm_activity,
+                        stripped_task,
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                )
+                pm_result = _load_result_from_file(pm_retry_envelope)
+                _pm_plan_titles = "\n".join(
+                    f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                    for t in (pm_result.get("execution_plan") or [])[:30]
+                )
+                architect_retry_envelope = _require_activity_result(
+                    "architect_activity",
+                    await workflow.execute_activity(
+                        architect_activity,
+                        {
+                            **stripped_task,
+                            "project_name": pm_result.get("project_name", initial_task.get("project_name")),
+                            "project_repo_path": pm_result.get("project_repo_path"),
+                            "description": (
+                                f"{initial_task.get('description', '')}\n\n"
+                                f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                                f"PM execution plan tasks:\n{_pm_plan_titles}"
+                            ),
+                        },
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                )
+                architect_result = _load_result_from_file(architect_retry_envelope)
+                project_context = _project_context(initial_task, pm_result)
+                tasks = await _prepare_execution_tasks(
+                    architect_result.get("tasks", []), project_context, retry_policy
+                )
+
             if not tasks:
                 workflow.logger.warning(
-                    f"[{workflow_id}] No tasks returned from architect"
+                    f"[{workflow_id}] No tasks returned after {_pm_retry} PM retries; aborting"
                 )
                 return {
                     "status": "complete",
                     "pm_result": pm_result,
                     "architect_result": architect_result,
                     "dev_qa_results": [],
-                    "analysis": {"status": "skipped", "reason": "no tasks"},
+                    "analysis": {"status": "skipped", "reason": "no tasks after PM retries"},
                 }
 
             workflow.logger.info(
