@@ -105,6 +105,29 @@ def _require_task_list(name: str, result: Any) -> list[Dict[str, Any]]:
     return tasks
 
 
+def _load_result_from_file(envelope: Dict[str, Any]) -> Dict[str, Any]:
+    """Read the full activity result from disk given a slim Temporal envelope.
+
+    Uses workflow.side_effect so the loaded data is recorded in Temporal's event
+    history on first run and replayed from history on subsequent runs — making
+    file I/O deterministic and replay-safe.
+    """
+    context_file = envelope.get("_context_file")
+    if not context_file:
+        return envelope
+
+    def _read() -> Dict[str, Any]:
+        try:
+            data = json.loads(Path(context_file).read_text(encoding="utf-8"))
+            data.pop("_meta", None)
+            return data
+        except Exception as exc:
+            workflow.logger.warning(f"[workflow] Failed to load context file {context_file}: {exc}")
+            return envelope
+
+    return workflow.side_effect(_read)
+
+
 def _project_context(
     initial_task: Dict[str, Any], pm_result: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
