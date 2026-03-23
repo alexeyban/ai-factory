@@ -71,8 +71,10 @@ def ensure_repo(repo_path: Path) -> None:
     repo_path.mkdir(parents=True, exist_ok=True)
     if not (repo_path / ".git").exists():
         run_git(repo_path, ["init", "-b", "main"])
-    run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME])
-    run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL])
+    # check=False: these are idempotent config writes; concurrent tasks on the same
+    # repo can race on .git/config and return exit 255 — safe to ignore.
+    run_git(repo_path, ["config", "user.name", DEFAULT_GIT_USER_NAME], check=False)
+    run_git(repo_path, ["config", "user.email", DEFAULT_GIT_USER_EMAIL], check=False)
 
 
 def has_commits(repo_path: Path) -> bool:
