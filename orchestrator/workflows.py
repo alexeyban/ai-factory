@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         setup_task,
         docs_task,
         analyst_activity,
+        cleanup_stale_branches_activity,
         MAX_PM_RECOVERY_CYCLES,
     )
 
