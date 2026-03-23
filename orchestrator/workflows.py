@@ -601,6 +601,18 @@ class OrchestratorWorkflow:
             ):
                 final_status = "needs_attention"
 
+            # Clean up stale task-* branches for all completed tasks
+            completed_task_ids = [r.get("task_id") for r in dev_qa_results if r.get("task_id")]
+            await workflow.execute_activity(
+                cleanup_stale_branches_activity,
+                {
+                    "project_repo_path": pm_result.get("project_repo_path", ""),
+                    "completed_task_ids": completed_task_ids,
+                },
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+
             workflow.logger.info(
                 f"[{workflow_id}] Workflow completed with status {final_status}"
             )
