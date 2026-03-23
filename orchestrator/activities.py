@@ -670,6 +670,7 @@ async def decomposer_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     result = {
         "task_id": task.get("task_id"),
         "stage": "decomposer_done",
+        "status": "success",
         "decision": "continue",
         "tasks": tasks,
         **project_context_dict,
