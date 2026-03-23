@@ -100,6 +100,17 @@ def _wrap_activity_result(
     result: Dict[str, Any],
     start_time: datetime | None = None,
 ) -> Dict[str, Any]:
+    """Save full result to disk and return a slim envelope through Temporal.
+
+    The full payload lives in a JSON file under /workspace/.ai_factory/contexts/.
+    Only a small routing envelope (< 1 KB) flows through Temporal's event history,
+    keeping all messages well under the 512 KB payload limit.
+
+    Activities that receive a result as input call _load_activity_input() which
+    transparently reads the context file before the activity body runs.
+    Workflows call _load_result_from_file() (via workflow.side_effect) to read
+    the file when they need the full data.
+    """
     duration_ms = None
     if start_time:
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
@@ -133,10 +144,22 @@ def _wrap_activity_result(
     except Exception as e:
         LOGGER.error("[activity] Failed to save result: %s", e)
 
+    # Slim envelope — only routing/status fields pass through Temporal.
+    qa = result.get("qa") or {}
     return {
         "_context_file": str(output_file),
         "_workflow_id": workflow_id,
-        **result,
+        "task_id": result.get("task_id"),
+        "stage": stage,
+        "decision": result.get("decision", "continue"),
+        "status": result.get("status"),
+        "project_name": result.get("project_name"),
+        "project_repo_path": result.get("project_repo_path"),
+        # task-level QA status for recovery logic (avoids loading full file)
+        "qa_status": qa.get("status") if isinstance(qa, dict) else None,
+        "error": result.get("error"),
+        # task count for architect/decomposer logging
+        "task_count": len(result.get("tasks", [])) if "tasks" in result else None,
     }
 
 
