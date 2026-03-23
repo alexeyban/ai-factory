@@ -52,41 +52,34 @@ deployed but not yet verified with a successful full run from PM through analyst
 - [ ] Verify GitHub PRs are created and merged by `create_and_merge_github_pr`
 - [ ] Confirm no more exit-255 errors in dev-worker / qa-worker logs
 
-### GitHub PR merge fails with branch protection
-`create_and_merge_github_pr` uses the squash/merge API directly. If the target repo has
-branch protection rules requiring status checks or reviews, the merge call returns 405/422.
-- [ ] Detect 405/422 response and log a clear warning instead of silently returning `ok: False`
-- [ ] Consider supporting auto-merge flag (sets PR to auto-merge when checks pass)
+### ~~GitHub PR merge fails with branch protection~~ ✓ Fixed
+`create_and_merge_github_pr` now detects HTTP 405/422, logs a clear warning, and
+automatically enables auto-merge via the GitHub GraphQL API as a fallback.
+`create_and_merge_github_pr` return dict gains `auto_merge: bool` field.
 
-### Large project wave size vs. rate limits
-Projects decomposed into 100+ tasks saturate LLM provider quotas during Wave 1 dispatch.
-- [ ] Implement wave size cap (e.g. `MAX_WAVE_SIZE=20`) in `_dispatch_tasks`
-- [ ] Add inter-wave delay when previous wave had rate-limit failures
+### ~~Large project wave size vs. rate limits~~ ✓ Fixed
+Added `MAX_WAVE_SIZE` env var (default 20) that caps each wave in `_dispatch_tasks`.
+Added `INTER_WAVE_RATE_LIMIT_DELAY_SECONDS` (default 30s) delay before the next wave
+when the previous wave contained rate-limit failures (HTTP 429 errors).
 
 ---
 
 ## Features
 
-### Local skills pre-validation (plan exists)
-A plan (`stateful-sprouting-ripple.md`) exists to add `shared/tools.py` with 7 deterministic
-skills (syntax check, file tree, import map, lint, typecheck, pytest+coverage, git diff) and
-wire them into dev context and QA pre-validation.
-- [ ] Create `shared/tools.py`
-- [ ] Create `tests/test_tools.py`
-- [ ] Update `shared/prompts/dev/user.txt` with `{existing_code}` block
-- [ ] Update `_build_dev_prompt` to pass existing code context
-- [ ] Update `_run_qa_for_artifact` with syntax → lint → typecheck → pytest pipeline
-- [ ] Update `_install_project_dependencies` to include ruff, mypy, pytest-cov
+### ~~Local skills pre-validation~~ ✓ Done
+`shared/tools.py` with 7 skills (syntax check, file tree, import map, lint, typecheck,
+pytest+coverage, git diff + error history). Wired into `_build_dev_prompt` (existing_code
+block) and `_run_qa_for_artifact` (syntax → lint → typecheck → pytest pipeline).
+`_install_project_dependencies` installs ruff, mypy, pytest-cov.
 
-### Branch cleanup for interrupted workflows
-If a workflow fails mid-task, the task branch remains open on GitHub.
-- [ ] Add `cleanup_stale_branches` step at end of `OrchestratorWorkflow` (or in analyst activity)
-- [ ] List all remote branches matching `task-*` pattern and delete branches whose tasks are done
+### ~~Branch cleanup for interrupted workflows~~ ✓ Done
+`cleanup_stale_branches_activity` added to `activities.py`. Lists remote `task-*` branches,
+deletes those whose task IDs appear in the completed set (via GitHub API or git push --delete).
+Called at the end of `OrchestratorWorkflow` after analyst runs.
 
-### Task resumability when PM returns 0 tasks
-When PM produces an empty execution plan, the workflow ends without doing any work.
-- [ ] Retry PM with a stripped-down prompt (project description only, no architect output) if `tasks_created == 0`
-- [ ] Cap at 2 retries
+### ~~Task resumability when PM returns 0 tasks~~ ✓ Done
+Both `OrchestratorWorkflow` and `ProjectWorkflow` now retry PM (with description-only prompt,
+no architect/analyst notes) and re-run architect if 0 tasks are returned. Capped at 2 retries.
 
 ### Dev agent output path verification
 Files written by dev agent don't always respect the `output.files` paths in the task contract.
@@ -98,10 +91,11 @@ Files written by dev agent don't always respect the `output.files` paths in the 
 ## Infrastructure
 
 ### Tests
-- [ ] Integration test for `create_and_merge_github_pr` with a mock HTTP server
-- [ ] Regression test for PM activity with a large architect response (catch 0-task bug)
-- [ ] Unit tests for `shared/tools.py` (stdlib only — no ruff/mypy needed)
-- [ ] Test for `workflow_id` propagation through task state cache
+- [x] Integration tests for `create_and_merge_github_pr` — `tests/test_git_github.py`
+  (happy path, 405 → auto-merge, 422 → auto-merge, both-fail, no-token, non-github)
+- [x] Regression test for PM activity with large architect response — `tests/test_pm_regression.py`
+- [x] Unit tests for `shared/tools.py` — `tests/test_tools.py`
+- [x] Test for `workflow_id` propagation through task state cache — `tests/test_pm_regression.py`
 
 ### Kafka standalone agent path
 The agents in `agents/dispatcher/` and `shared/standalone_dispatcher.py` lag behind
