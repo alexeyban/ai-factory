@@ -938,10 +938,17 @@ def _build_dev_prompt(
         except Exception:
             pass  # never crash the dev loop
 
+    output_files = task.get("output", {}).get("files", [])
+    if output_files:
+        target_files_text = "\n".join(f"  - {f}" for f in output_files)
+    else:
+        target_files_text = "  (not specified — infer from task description)"
+
     return render_prompt(
         DEV_USER_PROMPT,
         task_description=description,
         task_context=json.dumps(task, indent=2, ensure_ascii=True),
+        target_files=target_files_text,
         attempt_number=attempt_number,
         qa_feedback=qa_feedback_text,
         error_history=error_history_text,
