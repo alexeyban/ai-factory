@@ -337,8 +337,22 @@ class OrchestratorWorkflow:
             # are saved under the correct workflow directory (not "unknown").
             initial_task = {**initial_task, "_workflow_id": workflow_id}
 
+            # Phase 0: episode tracking
+            episode_id: str = initial_task.get("episode_id") or new_episode_id()
+            max_iterations: int = int(initial_task.get("max_iterations", 1))
+            initial_task = {**initial_task, "episode_id": episode_id}
+
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_started",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "max_iterations": max_iterations},
+            )
+
             workflow.logger.info(
-                f"[{workflow_id}] Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')[:100]}"
+                f"[{workflow_id}] Starting orchestrator workflow for task: "
+                f"{initial_task.get('description', 'unknown')[:100]} "
+                f"(episode={episode_id}, max_iterations={max_iterations})"
             )
 
             pm_envelope = _require_activity_result(
