@@ -188,7 +188,7 @@ async def test_kafka_failure_does_not_raise():
 async def test_memory_db_failure_does_not_raise():
     """If DB is unreachable, regression check is skipped silently."""
     result = {"status": "success", "reward": 0.7, "qa_metrics": {}}
-    with patch("orchestrator.activities.MemoryDB", side_effect=Exception("DB down")):
+    with patch("memory.db.MemoryDB", side_effect=Exception("DB down")):
         result = await _apply_reward_and_regression(
             result, "T001", "ep_001", 0,
             kafka_producer=None,
