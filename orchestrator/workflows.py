@@ -634,8 +634,16 @@ class OrchestratorWorkflow:
                 f"[{workflow_id}] Workflow completed with status {final_status}"
             )
 
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_finished",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "status": final_status},
+            )
+
             return {
                 "status": final_status,
+                "episode_id": episode_id,
                 "pm_result": pm_result,
                 "architect_result": architect_result,
                 "dev_qa_results": dev_qa_results,
