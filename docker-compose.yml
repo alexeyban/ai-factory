@@ -208,3 +208,4 @@ services:
 
 volumes:
   postgres-data:
+  qdrant_data:
