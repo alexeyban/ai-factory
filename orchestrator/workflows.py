@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, Any, Mapping, NoReturn
