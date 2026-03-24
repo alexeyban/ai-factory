@@ -1,0 +1,66 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(.venv/bin/python -m pytest:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(pytest:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker-compose:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(pip:*)",
+      "Bash(pip3:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; echo \"$f\" | grep -q '\\.py$' && cd /home/legion/PycharmProjects/ai-factory && .venv/bin/python -m pytest tests/ -q --tb=short 2>&1 | tail -5; } 2>/dev/null || true",
+            "timeout": 60,
+            "statusMessage": "Запуск тестов..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | { read -r cmd; echo \"$cmd\" | grep -q 'git commit' && cd /home/legion/PycharmProjects/ai-factory && git status --short 2>&1; } 2>/dev/null || true",
+            "timeout": 10,
+            "statusMessage": "git status..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '\"[\\(now | strftime(\"%Y-%m-%dT%H:%M:%S\"))] \\(.tool_input.command)\"' >> /tmp/claude-bash-log.txt 2>/dev/null || true",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Claude завершил работу. Запустите git status для проверки изменений.\"}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

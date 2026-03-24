@@ -1,0 +1,101 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: TaskContract
+description: Unified task contract for all AI Factory agents
+type: object
+
+required:
+  - task_id
+  - type
+
+properties:
+  task_id:
+    type: string
+    description: Unique task identifier
+  type:
+    type: string
+    enum: [dev, qa, refactor, docs, feature, bugfix, setup, test]
+    description: Task type
+  title:
+    type: string
+    description: Short descriptive title
+  description:
+    type: string
+    description: Implementation-ready description
+  input_spec:
+    type: object
+    description: Input data specification
+    default: {}
+  tests:
+    type: array
+    items:
+      type: string
+    description: List of test scenarios
+    default: []
+  hidden_tests:
+    type: array
+    items:
+      type: string
+    description: Hidden test cases (not shown to Dev agent)
+    default: []
+  metrics:
+    type: object
+    description: Target metrics (coverage, perf)
+    default: {}
+  constraints:
+    type: object
+    properties:
+      max_tokens:
+        type: integer
+        default: 8000
+      timeout_sec:
+        type: integer
+        default: 900
+      max_fix_attempts:
+        type: integer
+        default: 2
+    default: {}
+  dependencies:
+    type: array
+    items:
+      type: string
+    description: Task IDs this task depends on
+    default: []
+  assigned_agent:
+    type: string
+    description: Agent assigned to this task (dev, qa, etc.)
+  input:
+    type: object
+    description: Legacy input field (backward compatibility)
+    default: {}
+  output:
+    type: object
+    description: Expected output specification
+    default: {}
+  verification:
+    type: object
+    description: Verification method and criteria
+    default: {}
+  acceptance_criteria:
+    type: array
+    items:
+      type: string
+    default: []
+  estimated_size:
+    type: string
+    enum: [small, medium, large]
+  can_parallelize:
+    type: boolean
+    default: true
+  project_name:
+    type: string
+  project_repo_path:
+    type: string
+  episode_id:
+    type: string
+    description: Episode ID this task belongs to
+  iteration:
+    type: integer
+    description: Iteration number within learning loop
+    default: 0
+
+additionalProperties: true

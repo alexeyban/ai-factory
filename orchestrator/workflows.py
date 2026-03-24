@@ -12,6 +12,9 @@ from agents.decomposer.agent import estimate_tokens as estimate_task_tokens
 from agents.decomposer.agent import normalize_task_contract
 
 with workflow.unsafe.imports_passed_through():
+    from shared.episode import new_episode_id, log_episode_event
+
+with workflow.unsafe.imports_passed_through():
     from orchestrator.activities import (
         pm_activity,
         pm_recovery_activity,
@@ -334,8 +337,22 @@ class OrchestratorWorkflow:
             # are saved under the correct workflow directory (not "unknown").
             initial_task = {**initial_task, "_workflow_id": workflow_id}
 
+            # Phase 0: episode tracking
+            episode_id: str = initial_task.get("episode_id") or new_episode_id()
+            max_iterations: int = int(initial_task.get("max_iterations", 1))
+            initial_task = {**initial_task, "episode_id": episode_id}
+
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_started",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "max_iterations": max_iterations},
+            )
+
             workflow.logger.info(
-                f"[{workflow_id}] Starting orchestrator workflow for task: {initial_task.get('description', 'unknown')[:100]}"
+                f"[{workflow_id}] Starting orchestrator workflow for task: "
+                f"{initial_task.get('description', 'unknown')[:100]} "
+                f"(episode={episode_id}, max_iterations={max_iterations})"
             )
 
             pm_envelope = _require_activity_result(
@@ -617,8 +634,16 @@ class OrchestratorWorkflow:
                 f"[{workflow_id}] Workflow completed with status {final_status}"
             )
 
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_finished",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "status": final_status},
+            )
+
             return {
                 "status": final_status,
+                "episode_id": episode_id,
                 "pm_result": pm_result,
                 "architect_result": architect_result,
                 "dev_qa_results": dev_qa_results,
@@ -658,8 +683,19 @@ class ProjectWorkflow:
             workflow_id = workflow.info().workflow_id
             initial_task = {**initial_task, "_workflow_id": workflow_id}
 
+            # Phase 0: episode tracking
+            episode_id: str = new_episode_id()
+            initial_task = {**initial_task, "episode_id": episode_id}
+
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_started",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "project_name": project_name},
+            )
+
             workflow.logger.info(
-                f"[{workflow_id}] Starting project workflow: {project_name}"
+                f"[{workflow_id}] Starting project workflow: {project_name} (episode={episode_id})"
             )
 
             pm_result = _load_result_from_file(_require_activity_result(
@@ -886,8 +922,16 @@ class ProjectWorkflow:
             ):
                 final_status = "needs_attention"
 
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_finished",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "status": final_status},
+            )
+
             return {
                 "status": final_status,
+                "episode_id": episode_id,
                 "project_name": project_name,
                 "pm_result": pm_result,
                 "architect_result": architect_result,
