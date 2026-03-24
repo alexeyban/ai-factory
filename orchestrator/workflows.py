@@ -683,8 +683,19 @@ class ProjectWorkflow:
             workflow_id = workflow.info().workflow_id
             initial_task = {**initial_task, "_workflow_id": workflow_id}
 
+            # Phase 0: episode tracking
+            episode_id: str = new_episode_id()
+            initial_task = {**initial_task, "episode_id": episode_id}
+
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_started",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "project_name": project_name},
+            )
+
             workflow.logger.info(
-                f"[{workflow_id}] Starting project workflow: {project_name}"
+                f"[{workflow_id}] Starting project workflow: {project_name} (episode={episode_id})"
             )
 
             pm_result = _load_result_from_file(_require_activity_result(
