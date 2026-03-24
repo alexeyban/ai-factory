@@ -291,18 +291,50 @@ def run_typecheck(
 # ---------------------------------------------------------------------------
 
 
+def parse_junit_xml(junit_path: Path) -> dict:
+    """
+    Parse a pytest junit XML file and return pass/fail/total counts.
+
+    Returns dict with keys: tests_passed, tests_failed, tests_total, tests_errored.
+    Returns all-zeros if the file is missing or unparseable.
+    """
+    result = {"tests_passed": 0, "tests_failed": 0, "tests_total": 0, "tests_errored": 0}
+    if not junit_path.exists():
+        return result
+    try:
+        tree = ET.parse(str(junit_path))
+        root = tree.getroot()
+        # junit XML has a <testsuite> root or is wrapped in <testsuites>
+        suites = root.findall(".//testsuite") or [root]
+        for suite in suites:
+            total = int(suite.get("tests", 0))
+            failures = int(suite.get("failures", 0))
+            errors = int(suite.get("errors", 0))
+            skipped = int(suite.get("skipped", 0))
+            passed = total - failures - errors - skipped
+            result["tests_total"] += total
+            result["tests_failed"] += failures
+            result["tests_errored"] += errors
+            result["tests_passed"] += max(0, passed)
+    except ET.ParseError:
+        pass
+    return result
+
+
 def run_pytest_with_coverage(
     repo_path: Path,
     python_path: Path,
     timeout: int,
     module_name: str,
 ) -> ToolResult:
-    """Run pytest with --cov. Falls back gracefully if pytest-cov missing.
+    """Run pytest with --cov and --junit-xml. Falls back gracefully if plugins missing.
 
     data = {returncode, stdout, stderr,
-            coverage: {percent, covered_lines, total_lines, missing_lines} | None}
+            coverage: {percent, covered_lines, total_lines, missing_lines} | None,
+            junit: {tests_passed, tests_failed, tests_total, tests_errored}}
     """
     cov_report_file = Path(tempfile.mktemp(suffix=".json"))
+    junit_report_file = Path(tempfile.mktemp(suffix=".xml"))
     cmd = [
         str(python_path),
         "-m",
@@ -311,6 +343,7 @@ def run_pytest_with_coverage(
         "-v",
         f"--cov={module_name}",
         f"--cov-report=json:{cov_report_file}",
+        f"--junit-xml={junit_report_file}",
     ]
     try:
         proc = subprocess.run(
@@ -329,6 +362,8 @@ def run_pytest_with_coverage(
                 "stdout": "",
                 "stderr": str(exc),
                 "coverage": None,
+                "junit": {"tests_passed": 0, "tests_failed": 0,
+                          "tests_total": 0, "tests_errored": 0},
             },
             error="timeout",
         )
@@ -351,12 +386,19 @@ def run_pytest_with_coverage(
         except OSError:
             pass
 
+    junit = parse_junit_xml(junit_report_file)
+    try:
+        junit_report_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+
     ok = proc.returncode == 0
     data = {
         "returncode": proc.returncode,
         "stdout": proc.stdout,
         "stderr": proc.stderr,
         "coverage": coverage,
+        "junit": junit,
     }
     return ToolResult(ok=ok, output=proc.stdout + proc.stderr, data=data)
 
