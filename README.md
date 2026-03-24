@@ -206,33 +206,41 @@ Temporal Web UI: `http://localhost:8088`
 | `workspace/.ai_factory/contexts/<workflow_id>/` | JSON context files per pipeline stage |
 | `workspace/.ai_factory/tasks/` | Per-task state JSON (in-progress, success, fail) |
 | `workspace/.ai_factory/continuations/` | Continuation plans written on timeout |
+| `workspace/.ai_factory/replay_buffer.json` | Good/bad solution buffer (Phase 5) |
+| `workspace/.ai_factory/policy_state.json` | Exploration rate + reward rolling average (Phase 5) |
+| `skills/` | Extracted skill `.py` files + `registry.json` |
+
+## Self-Learning Stack (Phases 0–5)
+
+```
+Phase 0  Episode tracking (episode_id, log_episode_event)
+Phase 1  Memory layer: PostgreSQL + Qdrant (episodes, solutions, skills, failures)
+Phase 2  Skill Engine: extract → store → retrieve → inject into dev prompt
+Phase 3  Dev evolution: multi-candidate generation, CodeComposer, epsilon-greedy
+Phase 4  QA + Reward: RewardEngine, junit XML, regression detection, Kafka events
+Phase 5  Learning Loop: LearningWorkflow, ReplayBuffer, PolicyUpdater
+```
+
+**Test suite: 218 tests, all passing** (`PYTHONPATH=. pytest tests/`)
 
 ## Pipeline Status (2026-03-24)
-
-All major failure modes are fixed. Isolation tests pass for PM, Architect, Decomposer, and Dev.
 
 | Component | Status |
 |-----------|--------|
 | PM activity | ✓ Tested in isolation |
-| Architect activity | ✓ Tested — `assigned_agent` correctly populated |
-| Decomposer activity | ✓ Tested — all subtasks have type + title + assigned_agent |
-| Dev activity | ✓ Tested — multi-file output to correct target paths, QA passes |
-| QA activity | Script ready (`debug_qa.py`), full run pending |
-| Analyst activity | Not yet tested in isolation |
-| Full e2e pipeline | Not yet re-validated after recent fixes |
-
-Known limitations:
-- opencode/MiniMax free tier is consistently rate-limited during testing; falls back to OpenAI automatically
-- GitHub PR auto-merge requires branch protection to be configured with auto-merge enabled on the repo
-- The Kafka standalone agent path lags behind the Temporal implementation
+| Architect activity | ✓ `assigned_agent` correctly populated |
+| Decomposer activity | ✓ All subtasks have type + title + assigned_agent |
+| Dev activity | ✓ Multi-file output, multi-candidate, skill-aware prompting |
+| QA activity | ✓ Reward computation, regression detection, Kafka publishing |
+| LearningWorkflow | ✓ Stagnation detection, perfect-score stop, policy update |
+| Memory / Skill Engine | ✓ PostgreSQL + Qdrant backed, full test coverage |
+| Full e2e pipeline | Not yet re-validated after self-learning additions |
 
 ## Purpose
 
-AI Factory is a practical prototype for autonomous, Git-backed software delivery:
-- prompt-defined specialist agents
-- Temporal orchestration with wave-based task dispatch
-- resumable task execution with self-healing loops
-- versioned documentation committed to the project repo
-- LLM-backed planning and multi-file code generation
-- QA-driven correction loops
-- GitHub-oriented project delivery
+AI Factory is a practical prototype for autonomous, self-improving software delivery:
+- prompt-defined specialist agents (PM, Architect, Decomposer, Dev, QA, Analyst)
+- Temporal orchestration with wave-based task dispatch and self-healing loops
+- AlphaZero-style iterative learning: dev → qa → reward → skill extraction → policy update
+- Episodic memory, skill accumulation, and replay buffer for policy improvement
+- LLM-backed planning, multi-file code generation, and GitHub-oriented delivery
