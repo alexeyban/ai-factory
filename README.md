@@ -128,18 +128,21 @@ File paths come from the task contract's `output.files` list. If the LLM returns
 | `LLM_MAX_PROMPT_TOKENS` | `8000` | Token limit before decomposition |
 | `LLM_PROVIDER_COOLDOWN_SECONDS` | `15` | Cooldown after 429 |
 | `MOCK_LLM` | `false` | Skip real LLM calls |
-| `OLLAMA_MODEL` | `llama3:latest` | Local Ollama model |
 | `TEMPORAL_ADDRESS` | `temporal:7233` | Temporal server |
 | `TASK_QUEUE` | `ai-factory-tasks` | Temporal task queue |
 | `WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES` | `30` | Per-activity LLM timeout |
 | `DEV_QA_MAX_FIX_ATTEMPTS` | `2` | Self-healing loop limit |
 | `PM_MAX_RECOVERY_CYCLES` | `2` | PM re-planning limit |
-| `MAX_TASK_EXECUTION_SECONDS` | `900` | Per-task budget |
 | `MAX_WAVE_SIZE` | `20` | Max concurrent tasks per wave |
-| `INTER_WAVE_RATE_LIMIT_DELAY_SECONDS` | `30` | Delay between waves after 429 |
-| `PROJECTS_ROOT` | `/workspace/projects` | Generated project repos |
-| `WORKSPACE_ROOT` | `/workspace` | Pipeline workspace root |
-| `AI_FACTORY_ROOT` | `/workspace/.ai_factory` | Contexts, tasks, continuations |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant vector DB |
+| `MEMORY_DB_URL` | `postgresql://...` | PostgreSQL for memory tables |
+| `MAX_ITERATIONS` | `5` | LearningWorkflow iterations per task |
+| `STAGNATION_THRESHOLD` | `3` | Non-improving iterations before stop |
+| `NUM_CANDIDATES` | `1` | Dev candidates per iteration |
+| `EXPLORATION_RATE` | `0.3` | Epsilon-greedy exploration fraction |
+| `REWARD_CORRECTNESS_W` | `1.0` | Correctness weight in reward formula |
+| `REWARD_PERF_W` | `0.3` | Performance weight in reward formula |
+| `REWARD_COMPLEXITY_W` | `0.2` | Complexity penalty weight |
 
 ## Isolation Debug Scripts
 
