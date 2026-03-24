@@ -12,6 +12,9 @@ from agents.decomposer.agent import estimate_tokens as estimate_task_tokens
 from agents.decomposer.agent import normalize_task_contract
 
 with workflow.unsafe.imports_passed_through():
+    from shared.episode import new_episode_id, log_episode_event
+
+with workflow.unsafe.imports_passed_through():
     from orchestrator.activities import (
         pm_activity,
         pm_recovery_activity,
