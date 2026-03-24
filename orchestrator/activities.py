@@ -1298,6 +1298,51 @@ def _run_qa_for_artifact(
     }
 
 
+def _try_extract_skill(
+    task: Dict[str, Any],
+    task_id: str,
+    artifact: str | None,
+) -> None:
+    """
+    Attempt to extract a reusable skill from the successful dev artifact.
+
+    Runs synchronously but is entirely fire-and-forget — any exception is
+    logged as a warning and never propagates to the caller.
+    """
+    if not artifact:
+        return
+    artifact_path = Path(artifact)
+    if not artifact_path.exists():
+        return
+    try:
+        import asyncio
+        from memory.db import MemoryDB
+        from memory.vector_store import VectorMemory
+        from memory.skill_extractor import SkillExtractor
+
+        code = artifact_path.read_text(encoding="utf-8", errors="replace")
+        episode_id = task.get("episode_id", "")
+
+        db = MemoryDB()
+        vector = VectorMemory()
+        extractor = SkillExtractor(llm_fn=call_llm, vector_memory=vector, db=db)
+
+        async def _run():
+            await db.connect()
+            try:
+                await extractor.extract_from_solution(
+                    task_id=task_id,
+                    episode_id=episode_id,
+                    code=code,
+                )
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+    except Exception as exc:
+        LOGGER.warning("[qa] Skill extraction skipped: %s", exc)
+
+
 def _normalize_task(
     task: Dict[str, Any], project_context: Dict[str, Any]
 ) -> Dict[str, Any]:
