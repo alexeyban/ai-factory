@@ -55,6 +55,29 @@ Hardcoded `"python"` for venv creation fails on Linux (only `python3` available)
 `.env` had `OLLAMA_MODEL=llama4:scout` but only `llama3:latest` is installed.
 **Fix**: Updated `.env` to `OLLAMA_MODEL=llama3:latest`.
 
+### ~~Phase 1 — Memory Layer~~ ✓ Done (2026-03-24)
+PostgreSQL DDL (episodes, solutions, rewards, skills, failures), asyncpg MemoryDB client,
+EpisodicMemory, FailureMemory, VectorMemory (Qdrant). 55 tests.
+
+### ~~Phase 2 — Skill Engine~~ ✓ Done (2026-03-24)
+Skill dataclass, SkillRegistry (registry.json), SkillExtractor (LLM → skills/*.py + DB + Qdrant),
+SkillRetriever (similarity × 0.6 + success_rate × 0.4), SkillExecutor (subprocess sandbox). 44 tests.
+
+### ~~Phase 3 — Dev Agent Evolution~~ ✓ Done (2026-03-24)
+Multi-candidate generation, CodeComposer (AST-based import dedup + function merging),
+epsilon-greedy explore/exploit strategies, skill-aware dev prompts, failure patterns injection. 25 tests.
+
+### ~~Phase 4 — QA + Reward System~~ ✓ Done (2026-03-24)
+RewardEngine (correctness × w_c + perf × w_p − complexity × w_x), cyclomatic complexity via AST,
+junit XML parsing (`parse_junit_xml`), regression detection (`check_regression`),
+Kafka publishing to `qa.results` + `reward.computed` topics. 29 tests.
+
+### ~~Phase 5 — Learning Loop~~ ✓ Done (2026-03-24)
+`LearningWorkflow` (AlphaZero-style): N iterations dev→qa→reward with stagnation detection
+and perfect-score early stop. `ReplayBuffer` (good/bad deques, JSON persistence).
+`PolicyUpdater` (skill weights, prompt examples, adaptive epsilon decay).
+`extract_skill_activity` + `policy_update_activity` registered in worker. 38 tests.
+
 ---
 
 ## High Priority
