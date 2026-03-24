@@ -1277,6 +1277,9 @@ def _run_qa_for_artifact(
             run_git(repo_path, ["push", "origin", "--delete", branch_name], check=False)
             run_git(repo_path, ["branch", "-d", branch_name], check=False)
 
+        # --- Skill extraction (fire-and-forget) ---
+        _try_extract_skill(task, task_id, artifact)
+
     return {
         "task_id": task_id,
         "status": status,
