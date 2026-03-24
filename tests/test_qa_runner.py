@@ -169,10 +169,10 @@ async def test_kafka_failure_does_not_raise():
     producer = MagicMock()
     producer.send.side_effect = RuntimeError("Kafka down")
     result = {"status": "success", "reward": 0.8, "qa_metrics": {}}
-    with patch("orchestrator.activities.MemoryDB") as MockDB:
+    with patch("memory.db.MemoryDB") as MockDB:
         mock_db_inst = AsyncMock()
         MockDB.return_value = mock_db_inst
-        with patch("orchestrator.activities.EpisodicMemory") as MockMem:
+        with patch("memory.episodic.EpisodicMemory") as MockMem:
             mock_mem = AsyncMock()
             mock_mem.check_regression = AsyncMock(return_value=False)
             MockMem.return_value = mock_mem
