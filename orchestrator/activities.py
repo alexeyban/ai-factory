@@ -2771,3 +2771,125 @@ async def process_all_tasks(input_data: Any) -> List[Dict[str, Any]]:
         "invoked by new workflow executions — dispatch is now handled by the workflow."
     )
     return []
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Learning Loop activities
+# ---------------------------------------------------------------------------
+
+@activity.defn
+async def extract_skill_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract a reusable skill from a successful QA result.
+
+    Wraps SkillExtractor.extract_from_solution() as a proper Temporal activity
+    so LearningWorkflow can await it and track the extracted skill count.
+
+    Input keys:
+        task_id     — task identifier
+        episode_id  — current episode
+        artifact    — path to the generated code file
+        code        — inline code (fallback if artifact unreadable)
+
+    Returns:
+        {"extracted": True/False, "skill_id": str | None}
+    """
+    task_id = input_data.get("task_id", "")
+    episode_id = input_data.get("episode_id", "")
+    artifact = input_data.get("artifact", "")
+    code = input_data.get("code", "")
+
+    if not code and artifact:
+        try:
+            code = Path(artifact).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+    if not code:
+        return {"extracted": False, "skill_id": None}
+
+    try:
+        from memory.db import MemoryDB
+        from memory.vector_store import VectorMemory
+        from memory.skill_extractor import SkillExtractor
+
+        db = MemoryDB()
+        vector = VectorMemory()
+        extractor = SkillExtractor(llm_fn=call_llm, vector_memory=vector, db=db)
+
+        await db.connect()
+        try:
+            skill = await extractor.extract_from_solution(
+                task_id=task_id,
+                episode_id=episode_id,
+                code=code,
+            )
+        finally:
+            await db.close()
+
+        skill_id = skill.id if skill is not None else None
+        return {"extracted": skill is not None, "skill_id": skill_id}
+
+    except Exception as exc:
+        LOGGER.warning("[extract_skill] Skipped: %s", exc)
+        return {"extracted": False, "skill_id": None}
+
+
+@activity.defn
+async def policy_update_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update Dev agent policy after an episode completes.
+
+    Wraps PolicyUpdater.update() — adjusts prompt examples, skill weights,
+    and exploration rate.  Changes apply to the NEXT episode.
+
+    Input keys:
+        episode_id      — just-completed episode
+        best_solution   — dict with reward, artifact, code, skills_used
+        best_reward     — float
+        replay_buffer_path — optional override for persistence path
+    """
+    episode_id = input_data.get("episode_id", "")
+    best_solution = input_data.get("best_solution")
+    best_reward = float(input_data.get("best_reward", 0.0))
+    buffer_path_str = input_data.get(
+        "replay_buffer_path",
+        str(Path(os.getenv("AI_FACTORY_WORKSPACE", "workspace"))
+            / ".ai_factory" / "replay_buffer.json"),
+    )
+
+    try:
+        from memory.replay_buffer import ReplayBuffer, BufferedSolution
+        from memory.policy_updater import PolicyUpdater
+
+        buf_path = Path(buffer_path_str)
+        buf = ReplayBuffer.load(buf_path)
+
+        if best_solution is not None:
+            buf.add(
+                BufferedSolution(
+                    task_id=best_solution.get("task_id", ""),
+                    episode_id=episode_id,
+                    iteration=int(best_solution.get("iteration", 0)),
+                    reward=best_reward,
+                    artifact=best_solution.get("artifact", ""),
+                    code=best_solution.get("code", ""),
+                    skills_used=best_solution.get("skills_used", []),
+                )
+            )
+            buf.save(buf_path)
+
+        updater = PolicyUpdater(replay_buffer=buf)
+        await updater.update(
+            episode_id=episode_id,
+            best_solution=best_solution,
+            best_reward=best_reward,
+        )
+
+        LOGGER.info(
+            "[policy_update] episode=%s reward=%.4f buffer=%s",
+            episode_id, best_reward, buf.size(),
+        )
+        return {"ok": True, "buffer_size": buf.size()}
+
+    except Exception as exc:
+        LOGGER.warning("[policy_update] Skipped: %s", exc)
+        return {"ok": False, "error": str(exc)}
