@@ -947,6 +947,11 @@ def _build_dev_prompt(
     else:
         target_files_text = "  (not specified — infer from task description)"
 
+    if strategy == "explore":
+        strategy_instruction = "Strategy: EXPLORE — generate a fresh, original solution without relying on the skills above."
+    else:
+        strategy_instruction = "Strategy: EXPLOIT — leverage the available skills above to compose your solution."
+
     return render_prompt(
         DEV_USER_PROMPT,
         task_description=description,
@@ -956,6 +961,9 @@ def _build_dev_prompt(
         qa_feedback=qa_feedback_text,
         error_history=error_history_text,
         existing_code=_build_existing_code_context(task),
+        skills_context=skills_context,
+        failure_patterns=failure_patterns,
+        strategy_instruction=strategy_instruction,
     )
 
 
