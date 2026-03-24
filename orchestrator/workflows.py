@@ -946,3 +946,234 @@ class ProjectWorkflow:
             workflow_id = workflow.info().workflow_id
             workflow.logger.error(f"[{workflow_id}] Workflow failed: {exc}")
             _raise_non_retryable_python_failure(exc)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Learning Loop (AlphaZero-style self-play)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
+_DEFAULT_STAGNATION_THRESHOLD = int(os.getenv("STAGNATION_THRESHOLD", "3"))
+_LEARNING_ACTIVITY_TIMEOUT_MINUTES = int(
+    os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30")
+)
+
+
+@dataclass
+class LearningWorkflowInput:
+    task: Dict[str, Any]
+    max_iterations: int = field(default_factory=lambda: _DEFAULT_MAX_ITERATIONS)
+    num_candidates: int = field(
+        default_factory=lambda: int(os.getenv("NUM_CANDIDATES", "1"))
+    )
+    exploration_rate: float = field(
+        default_factory=lambda: float(os.getenv("EXPLORATION_RATE", "0.3"))
+    )
+    stagnation_threshold: int = field(
+        default_factory=lambda: _DEFAULT_STAGNATION_THRESHOLD
+    )
+    episode_id: str = ""
+
+
+@dataclass
+class LearningWorkflowResult:
+    best_solution: Dict[str, Any]
+    best_reward: float
+    total_iterations: int
+    stopped_reason: str   # 'max_iterations' | 'stagnation' | 'perfect_score'
+    skills_extracted: int
+
+
+@workflow.defn
+class LearningWorkflow:
+    """AlphaZero-style iterative learning loop for a single task.
+
+    Each iteration:
+        1. dev_activity  — generate candidate solution(s)
+        2. qa_activity   — validate + compute reward
+        3. Track best reward; detect stagnation
+        4. On improvement → extract_skill_activity
+    After all iterations:
+        5. policy_update_activity — update skill weights + prompt examples
+    """
+
+    @workflow.run
+    async def run(self, inp: LearningWorkflowInput) -> LearningWorkflowResult:
+        task = inp.task
+        workflow_id = workflow.info().workflow_id
+
+        episode_id: str = inp.episode_id or new_episode_id()
+        task = {
+            **task,
+            "episode_id": episode_id,
+            "_workflow_id": workflow_id,
+            "num_candidates": inp.num_candidates,
+            "exploration_rate": inp.exploration_rate,
+        }
+
+        retry_policy = RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            backoff_coefficient=2.0,
+            maximum_interval=timedelta(minutes=5),
+            maximum_attempts=3,
+        )
+        activity_timeout = timedelta(minutes=_LEARNING_ACTIVITY_TIMEOUT_MINUTES)
+
+        best_reward: float = 0.0
+        best_solution: Dict[str, Any] = {}
+        skills_extracted: int = 0
+        stagnation_count: int = 0
+        stopped_reason: str = "max_iterations"
+        iteration: int = 0
+
+        log_episode_event(
+            episode_id=episode_id,
+            event_type="learning_started",
+            agent="learning_workflow",
+            data={
+                "workflow_id": workflow_id,
+                "max_iterations": inp.max_iterations,
+                "num_candidates": inp.num_candidates,
+            },
+        )
+
+        for iteration in range(inp.max_iterations):
+            workflow.logger.info(
+                f"[{workflow_id}] LearningWorkflow iteration {iteration + 1}/{inp.max_iterations}"
+                f" (best_reward={best_reward:.4f}, stagnation={stagnation_count})"
+            )
+
+            # 1. Dev: generate candidate(s)
+            dev_envelope = await workflow.execute_activity(
+                dev_activity,
+                {**task, "attempt_number": iteration + 1},
+                start_to_close_timeout=activity_timeout,
+                retry_policy=retry_policy,
+            )
+            dev_result = _load_result_from_file(
+                _require_activity_result("dev_activity", dev_envelope)
+            )
+
+            # 2. QA: validate + compute reward
+            qa_envelope = await workflow.execute_activity(
+                qa_activity,
+                {
+                    **task,
+                    "attempt_number": iteration + 1,
+                    "artifact": dev_result.get("artifact", ""),
+                    "candidates": dev_result.get("candidates", []),
+                },
+                start_to_close_timeout=activity_timeout,
+                retry_policy=retry_policy,
+            )
+            qa_result = _load_result_from_file(
+                _require_activity_result("qa_activity", qa_envelope)
+            )
+
+            iteration_reward: float = float(qa_result.get("reward", 0.0))
+
+            # 3. Track best + stagnation
+            if iteration_reward > best_reward:
+                best_reward = iteration_reward
+                best_solution = {
+                    **qa_result,
+                    "task_id": task.get("task_id", ""),
+                    "iteration": iteration,
+                    "artifact": dev_result.get("artifact", ""),
+                    "code": dev_result.get("code", ""),
+                    "skills_used": dev_result.get("skills_used", []),
+                }
+                stagnation_count = 0
+
+                # 4. Extract skill on genuine improvement
+                if qa_result.get("status") == "success":
+                    extract_result = await workflow.execute_activity(
+                        extract_skill_activity,
+                        {
+                            "task_id": task.get("task_id", ""),
+                            "episode_id": episode_id,
+                            "artifact": dev_result.get("artifact", ""),
+                            "code": dev_result.get("code", ""),
+                        },
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                    if (extract_result or {}).get("extracted"):
+                        skills_extracted += 1
+            else:
+                stagnation_count += 1
+
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="iteration_complete",
+                agent="learning_workflow",
+                data={
+                    "iteration": iteration,
+                    "reward": iteration_reward,
+                    "best_reward": best_reward,
+                    "stagnation_count": stagnation_count,
+                },
+            )
+
+            # 5. Stagnation stop
+            if stagnation_count >= inp.stagnation_threshold:
+                stopped_reason = "stagnation"
+                log_episode_event(
+                    episode_id=episode_id,
+                    event_type="stagnation_detected",
+                    agent="learning_workflow",
+                    data={"iteration": iteration, "stagnation_count": stagnation_count},
+                )
+                workflow.logger.info(
+                    f"[{workflow_id}] Stagnation after {stagnation_count} non-improving iterations"
+                )
+                break
+
+            # 6. Perfect score stop
+            if best_reward >= 0.99:
+                stopped_reason = "perfect_score"
+                workflow.logger.info(
+                    f"[{workflow_id}] Perfect score ({best_reward:.4f}) — stopping early"
+                )
+                break
+
+            await asyncio.sleep(0)  # yield to prevent TMPRL1101
+
+        # 7. Policy update (effects apply to NEXT episode — avoids circular dependency)
+        await workflow.execute_activity(
+            policy_update_activity,
+            {
+                "episode_id": episode_id,
+                "best_solution": best_solution,
+                "best_reward": best_reward,
+            },
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+        log_episode_event(
+            episode_id=episode_id,
+            event_type="learning_finished",
+            agent="learning_workflow",
+            data={
+                "workflow_id": workflow_id,
+                "best_reward": best_reward,
+                "total_iterations": iteration + 1,
+                "stopped_reason": stopped_reason,
+                "skills_extracted": skills_extracted,
+            },
+        )
+
+        workflow.logger.info(
+            f"[{workflow_id}] LearningWorkflow done: "
+            f"reward={best_reward:.4f} iterations={iteration + 1} "
+            f"reason={stopped_reason} skills={skills_extracted}"
+        )
+
+        return LearningWorkflowResult(
+            best_solution=best_solution,
+            best_reward=best_reward,
+            total_iterations=iteration + 1,
+            stopped_reason=stopped_reason,
+            skills_extracted=skills_extracted,
+        )
