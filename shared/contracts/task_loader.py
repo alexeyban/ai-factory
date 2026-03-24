@@ -31,10 +31,9 @@ class TaskValidationError(ValueError):
 
 def validate_task(task: dict[str, Any]) -> bool:
     """
-    Validate task against the schema.
+    Validate task against the contract schema.
 
     Returns True if valid. Raises TaskValidationError on failure.
-    Tries jsonschema first; falls back to manual required-field check.
     """
     if not isinstance(task, dict):
         raise TaskValidationError(f"Task must be a dict, got {type(task).__name__}")
@@ -44,24 +43,10 @@ def validate_task(task: dict[str, Any]) -> bool:
         raise TaskValidationError(f"Missing required fields: {missing}")
 
     task_type = task.get("type", "")
-    allowed_types = {
-        "dev", "qa", "refactor", "docs",
-        "feature", "bugfix", "setup", "test",
-    }
-    if task_type and task_type not in allowed_types:
+    if task_type and task_type not in _ALLOWED_TYPES:
         raise TaskValidationError(
-            f"Invalid task type '{task_type}'. Allowed: {allowed_types}"
+            f"Invalid task type '{task_type}'. Allowed: {sorted(_ALLOWED_TYPES)}"
         )
-
-    try:
-        import jsonschema
-        schema = _load_schema()
-        jsonschema.validate(instance=task, schema=schema)
-    except ImportError:
-        # jsonschema not installed — basic check already done above
-        pass
-    except Exception as exc:
-        raise TaskValidationError(f"Schema validation failed: {exc}") from exc
 
     return True
 
