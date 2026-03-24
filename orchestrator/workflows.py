@@ -22,6 +22,8 @@ with workflow.unsafe.imports_passed_through():
         architect_activity,
         decomposer_activity,
         process_single_task,
+        dev_activity,
+        qa_activity,
         dev_task,
         qa_task,
         refactor_task,
