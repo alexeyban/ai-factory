@@ -2059,6 +2059,7 @@ async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     result = None
+    best_reward = -1.0
     for idx, candidate in enumerate(candidates):
         artifact = candidate.get("artifact", "")
         LOGGER.info(
@@ -2074,17 +2075,38 @@ async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         )
         candidate_result["candidate_idx"] = idx
         candidate_result["candidate_strategy"] = candidate.get("strategy", "explore")
-        if result is None:
+
+        # --- Phase 4: compute reward for this candidate ---
+        candidate_result = _attach_reward(
+            candidate_result,
+            candidate.get("code", ""),
+        )
+        candidate_reward = candidate_result.get("reward", 0.0)
+
+        if result is None or candidate_reward > best_reward:
+            best_reward = candidate_reward
             result = candidate_result
+
         if candidate_result.get("status") == "success":
-            result = candidate_result
-            LOGGER.info("[qa] Candidate %d passed — using as best result", idx + 1)
-            break
+            if len(candidates) == 1:
+                LOGGER.info("[qa] Candidate %d passed — using as best result", idx + 1)
+                break
+
+    # --- Phase 4: regression detection + Kafka publishing ---
+    episode_id = task.get("episode_id", "")
+    result = await _apply_reward_and_regression(
+        result, task_id, episode_id, attempt,
+        kafka_producer=task.get("_kafka_producer"),
+    )
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(
-        "[qa] Completed | workflow=%s | task_id=%s | duration=%dms | status=%s",
-        workflow_id, task_id, duration_ms, result.get("status", "unknown"),
+        "[qa] Completed | workflow=%s | task_id=%s | duration=%dms | "
+        "status=%s | reward=%.4f | regression=%s",
+        workflow_id, task_id, duration_ms,
+        result.get("status", "unknown"),
+        result.get("reward", 0.0),
+        result.get("is_regression", False),
     )
 
     return _wrap_activity_result(workflow_id, f"qa_{task_id}", result, start_time)
