@@ -1771,6 +1771,193 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Multi-candidate helpers (Phase 3)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_NUM_CANDIDATES = int(os.environ.get("NUM_CANDIDATES", "1"))
+_DEFAULT_EXPLORATION_RATE = float(os.environ.get("EXPLORATION_RATE", "0.3"))
+
+
+def _get_strategies(num_candidates: int, exploration_rate: float) -> list[str]:
+    """
+    Return a list of strategy strings for epsilon-greedy candidate generation.
+
+    Strategies: 'explore' (fresh, no skills) or 'exploit' (use top skills).
+    At least one candidate is always 'explore'.
+    """
+    n_explore = max(1, round(num_candidates * exploration_rate))
+    n_exploit = num_candidates - n_explore
+    strategies = ["explore"] * n_explore + ["exploit"] * n_exploit
+    return strategies
+
+
+def _build_skill_context_for_candidate(
+    task: Dict[str, Any],
+    strategy: str,
+) -> tuple[str, str]:
+    """
+    Return (skills_context, failure_patterns) strings for a given strategy.
+
+    In 'explore' mode both are empty so the dev agent works from scratch.
+    In 'exploit' mode we try to load skills synchronously from the registry
+    (no DB/Qdrant call at dev time — uses local registry.json only).
+    """
+    if strategy == "explore":
+        return "", ""
+
+    # Exploit: pull active skills from local registry
+    skills_context = ""
+    failure_patterns = ""
+    try:
+        from skills import SkillRegistry
+        registry = SkillRegistry()
+        active = registry.list_active_skills()[:3]
+        if active:
+            lines = ["## Available Skills (use if relevant)"]
+            for i, s in enumerate(active, 1):
+                tags = ", ".join(s.get("tags", [])) or "—"
+                lines.append(
+                    f"{i}. **{s.get('name', '?')}** "
+                    f"(success_rate: {s.get('success_rate', 0.0):.2f}, tags: {tags})"
+                )
+                desc = s.get("description", "")
+                if desc:
+                    lines.append(f"   {desc}")
+                if s.get("code_path"):
+                    lines.append(f"   Code: {s['code_path']}")
+            skills_context = "\n".join(lines)
+    except Exception as exc:
+        LOGGER.debug("[dev] Could not load skill registry: %s", exc)
+
+    return skills_context, failure_patterns
+
+
+def _generate_single_candidate(
+    task: Dict[str, Any],
+    task_id: str,
+    description: str,
+    attempt_number: int,
+    qa_feedback: Dict[str, Any] | None,
+    strategy: str,
+    candidate_idx: int,
+) -> Dict[str, Any]:
+    """
+    Generate one dev solution with the given strategy.
+
+    Uses CodeComposer in 'exploit' mode to compose skill code with LLM output.
+    Returns a result dict identical to _generate_dev_artifact output.
+    """
+    skills_context, failure_patterns = _build_skill_context_for_candidate(task, strategy)
+
+    repo_path = _ensure_project_scaffold(
+        task, task.get("project_description", description)
+    )
+    branch_name = _task_branch(task)
+    _prepare_task_branch(repo_path, branch_name, attempt_number)
+
+    plan_artifacts = _record_agent_plan(
+        repo_path,
+        "dev",
+        task,
+        description,
+        json.dumps(
+            {
+                "attempt_number": attempt_number,
+                "qa_feedback": qa_feedback or {},
+                "branch": branch_name,
+                "strategy": strategy,
+                "candidate_idx": candidate_idx,
+            },
+            indent=2,
+            ensure_ascii=True,
+        ),
+    )
+
+    raw_output = call_llm(
+        DEV_SYSTEM_PROMPT,
+        _build_dev_prompt(
+            task, description, attempt_number, qa_feedback,
+            skills_context=skills_context,
+            failure_patterns=failure_patterns,
+            strategy=strategy,
+        ),
+    )
+
+    # In exploit mode, compose with relevant skills
+    if strategy == "exploit":
+        try:
+            from skills import SkillRegistry
+            from memory.skill import Skill
+            from orchestrator.code_composer import CodeComposer
+            registry = SkillRegistry()
+            active = registry.list_active_skills()[:3]
+            skill_objs = [Skill.from_dict({"id": s["id"], **s}) for s in active]
+            raw_output = CodeComposer().compose(skill_objs, raw_output)
+        except Exception as exc:
+            LOGGER.debug("[dev] Skill composition skipped: %s", exc)
+
+    multi = _parse_multi_file_output(raw_output)
+    if multi:
+        written_paths = []
+        for rel_path, content in multi:
+            fp = repo_path / rel_path
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content)
+            written_paths.append(fp)
+        file_path = written_paths[0]
+        code = multi[0][1]
+    else:
+        code = _strip_code_fences(raw_output)
+        file_path = _task_module_path(task, repo_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(code)
+
+    LOGGER.info(
+        "[dev] Candidate %d/%s written to %s (%d bytes)",
+        candidate_idx, strategy, file_path, len(code),
+    )
+
+    docs_dir = repo_path / "documents" / "pm"
+    task_doc = _next_version_path(
+        docs_dir, f"task_{_task_slug(task)}_implementation", ".md"
+    )
+    _write_markdown(
+        task_doc,
+        f"Implementation: {_task_title(task)}",
+        f"## Branch\n`{branch_name}`\n\n## Attempt\n{attempt_number}\n\n"
+        f"## Strategy\n{strategy}\n\n"
+        f"## Artifact\n`{file_path.relative_to(repo_path)}`\n",
+    )
+
+    commit_sha = commit_all(
+        repo_path,
+        f"dev: implement {_task_slug(task)} attempt {attempt_number} [{strategy}]",
+    )
+    push_result = (
+        _sync_branch_to_remote(repo_path, branch_name)
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
+
+    return {
+        "task_id": task_id,
+        "status": "success",
+        "artifact": str(file_path),
+        "code": code,
+        "attempt": attempt_number,
+        "strategy": strategy,
+        "candidate_idx": candidate_idx,
+        "mode": "autofix" if qa_feedback else "initial",
+        "branch": branch_name,
+        "commit": commit_sha,
+        "push": push_result,
+        "project_repo_path": str(repo_path),
+        "implementation_note": str(task_doc),
+        "plan": plan_artifacts,
+    }
+
+
 @activity.defn
 async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     start_time = datetime.now()
@@ -1779,28 +1966,67 @@ async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
     attempt = int(task.get("attempt_number", 1))
+    num_candidates = int(task.get("num_candidates", _DEFAULT_NUM_CANDIDATES))
+    exploration_rate = float(task.get("exploration_rate", _DEFAULT_EXPLORATION_RATE))
 
     LOGGER.info(
-        "[dev] Starting | workflow=%s | task_id=%s | attempt=%d",
-        workflow_id,
-        task_id,
-        attempt,
+        "[dev] Starting | workflow=%s | task_id=%s | attempt=%d | candidates=%d",
+        workflow_id, task_id, attempt, num_candidates,
     )
 
-    result = _generate_dev_artifact(
-        task=task,
-        task_id=task_id,
-        description=description,
-        attempt_number=attempt,
-        qa_feedback=task.get("qa_feedback"),
-    )
+    strategies = _get_strategies(num_candidates, exploration_rate)
+    qa_feedback = task.get("qa_feedback")
+
+    if num_candidates == 1:
+        # Fast path: single candidate, no asyncio overhead
+        result = _generate_single_candidate(
+            task, task_id, description, attempt, qa_feedback, strategies[0], 0
+        )
+        candidates = [result]
+    else:
+        import asyncio as _asyncio
+        import functools
+
+        loop = _asyncio.get_event_loop()
+        futures = [
+            loop.run_in_executor(
+                None,
+                functools.partial(
+                    _generate_single_candidate,
+                    task, task_id, description, attempt, qa_feedback, strategy, idx,
+                ),
+            )
+            for idx, strategy in enumerate(strategies)
+        ]
+        raw = await _asyncio.gather(*futures, return_exceptions=True)
+        candidates = []
+        for i, outcome in enumerate(raw):
+            if isinstance(outcome, BaseException):
+                LOGGER.warning("[dev] Candidate %d failed: %s", i, outcome)
+            else:
+                candidates.append(outcome)
+
+    if not candidates:
+        # All candidates failed — return a minimal failure result
+        result = {
+            "task_id": task_id,
+            "status": "error",
+            "artifact": "",
+            "code": "",
+            "attempt": attempt,
+            "error": "All candidate generations failed",
+        }
+    else:
+        # Pick first successful candidate as primary result for backward compat
+        result = candidates[0]
+        result["candidates"] = candidates
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(
-        "[dev] Completed | workflow=%s | task_id=%s | duration=%dms | artifact=%s",
-        workflow_id,
-        task_id,
-        duration_ms,
+        "[dev] Completed | workflow=%s | task_id=%s | duration=%dms | "
+        "candidates=%d/%d | artifact=%s",
+        workflow_id, task_id, duration_ms,
+        len(candidates), num_candidates,
         result.get("artifact", "none"),
     )
 
