@@ -2033,6 +2033,159 @@ async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     return _wrap_activity_result(workflow_id, f"dev_{task_id}", result, start_time)
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — Reward helpers
+# ---------------------------------------------------------------------------
+
+_QA_RESULTS_TOPIC = "qa.results"
+_REWARD_COMPUTED_TOPIC = "reward.computed"
+
+
+def _attach_reward(qa_result: Dict[str, Any], code: str) -> Dict[str, Any]:
+    """
+    Compute and attach a reward scalar to a QA result dict.
+
+    Uses pytest junit counts if available (via run_pytest_with_coverage),
+    otherwise falls back to returncode-based inference.
+    Falls back silently if reward computation fails.
+    """
+    try:
+        from memory.reward import RewardEngine, QAMetrics
+
+        pytest_data = qa_result.get("pytest_data", {})
+        execution_time_ms = float(qa_result.get("execution_time_ms", 0.0))
+
+        engine = RewardEngine()
+        metrics = RewardEngine.metrics_from_pytest_result(
+            pytest_data,
+            execution_time_ms=execution_time_ms,
+        )
+        # Fallback: if no pytest data, infer from status
+        if metrics.tests_total == 0:
+            if qa_result.get("status") == "success":
+                metrics = QAMetrics(tests_passed=1, tests_failed=0, tests_total=1)
+            else:
+                metrics = QAMetrics(tests_passed=0, tests_failed=1, tests_total=1)
+
+        reward = engine.compute(metrics, code or "")
+        qa_result["reward"] = reward
+        qa_result["qa_metrics"] = {
+            "tests_passed": metrics.tests_passed,
+            "tests_failed": metrics.tests_failed,
+            "tests_total": metrics.tests_total,
+            "coverage": metrics.coverage,
+            "execution_time_ms": metrics.execution_time_ms,
+            "peak_memory_mb": metrics.peak_memory_mb,
+        }
+    except Exception as exc:
+        LOGGER.warning("[qa] Reward computation skipped: %s", exc)
+        qa_result.setdefault("reward", 0.0)
+    return qa_result
+
+
+async def _apply_reward_and_regression(
+    result: Dict[str, Any],
+    task_id: str,
+    episode_id: str,
+    iteration: int,
+    kafka_producer: Any | None = None,
+) -> Dict[str, Any]:
+    """
+    Run regression detection via EpisodicMemory and publish Kafka events.
+    Always returns result (with is_regression flag added).
+    """
+    reward = result.get("reward", 0.0)
+    is_regression = False
+
+    # Regression detection
+    try:
+        import os as _os
+        mem_dsn = _os.environ.get(
+            "MEMORY_DB_URL",
+            "postgresql://temporal:temporal@localhost:5432/ai_factory_memory",
+        )
+        from memory.db import MemoryDB
+        from memory.episodic import EpisodicMemory
+        db = MemoryDB(dsn=mem_dsn)
+        await db.connect()
+        try:
+            mem = EpisodicMemory(db)
+            is_regression = await mem.check_regression(task_id, reward)
+            if is_regression:
+                LOGGER.warning(
+                    "[qa] Regression detected for %s: reward=%.4f", task_id, reward
+                )
+        finally:
+            await db.close()
+    except Exception as exc:
+        LOGGER.debug("[qa] Regression check skipped: %s", exc)
+
+    result["is_regression"] = is_regression
+
+    # Kafka publishing (fire-and-forget)
+    _publish_qa_reward_events(
+        kafka_producer=kafka_producer,
+        episode_id=episode_id,
+        task_id=task_id,
+        iteration=iteration,
+        result=result,
+        reward=reward,
+        is_regression=is_regression,
+    )
+
+    return result
+
+
+def _publish_qa_reward_events(
+    kafka_producer: Any | None,
+    episode_id: str,
+    task_id: str,
+    iteration: int,
+    result: Dict[str, Any],
+    reward: float,
+    is_regression: bool,
+) -> None:
+    """Publish qa.results and reward.computed events to Kafka (fire-and-forget)."""
+    if kafka_producer is None:
+        return
+
+    from datetime import timezone
+    ts = datetime.now(timezone.utc).isoformat()
+    metrics = result.get("qa_metrics", {})
+
+    qa_payload = {
+        "episode_id": episode_id,
+        "task_id": task_id,
+        "iteration": iteration,
+        "tests_passed": metrics.get("tests_passed", 0),
+        "tests_failed": metrics.get("tests_failed", 0),
+        "tests_total": metrics.get("tests_total", 0),
+        "coverage": metrics.get("coverage", 0.0),
+        "execution_time_ms": metrics.get("execution_time_ms", 0.0),
+        "peak_memory_mb": metrics.get("peak_memory_mb", 0.0),
+        "reward": reward,
+        "timestamp": ts,
+    }
+    reward_payload = {
+        "episode_id": episode_id,
+        "task_id": task_id,
+        "iteration": iteration,
+        "reward": reward,
+        "is_regression": is_regression,
+        "is_best": not is_regression,
+        "timestamp": ts,
+    }
+
+    for topic, payload in [
+        (_QA_RESULTS_TOPIC, qa_payload),
+        (_REWARD_COMPUTED_TOPIC, reward_payload),
+    ]:
+        try:
+            kafka_producer.send(topic, payload)
+        except Exception as exc:
+            LOGGER.warning("[qa] Kafka publish to %s failed: %s", topic, exc)
+
+
 @activity.defn
 async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     start_time = datetime.now()
