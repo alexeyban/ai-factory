@@ -4,7 +4,7 @@ import logging
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from orchestrator.workflows import OrchestratorWorkflow, ProjectWorkflow
+from orchestrator.workflows import OrchestratorWorkflow, ProjectWorkflow, LearningWorkflow
 from orchestrator.activities import (
     pm_activity,
     pm_recovery_activity,
@@ -14,6 +14,8 @@ from orchestrator.activities import (
     qa_activity,
     analyst_activity,
     cleanup_stale_branches_activity,
+    extract_skill_activity,
+    policy_update_activity,
     process_single_task,
     process_all_tasks,
     dev_task,
