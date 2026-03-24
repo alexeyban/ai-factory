@@ -1,7 +1,10 @@
 """
 Task contract loader and validator.
 
-Validates task dicts against task_schema.yaml.
+Validates task dicts against a JSON Schema definition embedded here.
+The canonical human-readable schema lives in task_schema.yaml (for documentation),
+but validation uses a pure-Python dict to avoid the PyYAML dependency in the venv.
+
 Maintains backward compatibility with the existing normalize_task_contract
 used in agents/decomposer/agent.py.
 """
@@ -9,31 +12,21 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
-import yaml
-
 LOGGER = logging.getLogger(__name__)
-
-_SCHEMA_PATH = Path(__file__).parent / "task_schema.yaml"
 
 # Required fields for a minimal valid task
 _REQUIRED_FIELDS = {"task_id", "type"}
 
-# Fields that must be present in backward-compat mode (may be empty)
-_LEGACY_FIELDS = {"title", "description", "dependencies", "input", "output"}
+_ALLOWED_TYPES = frozenset({
+    "dev", "qa", "refactor", "docs",
+    "feature", "bugfix", "setup", "test",
+})
 
 
 class TaskValidationError(ValueError):
     """Raised when a task dict fails validation."""
-
-
-def _load_schema() -> dict:
-    """Load YAML schema once and cache."""
-    if not hasattr(_load_schema, "_cache"):
-        _load_schema._cache = yaml.safe_load(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    return _load_schema._cache
 
 
 def validate_task(task: dict[str, Any]) -> bool:
