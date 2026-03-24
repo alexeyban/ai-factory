@@ -1,0 +1,227 @@
+Ниже — **пошаговый TODO-план адаптации self-improving agent (AlphaZero-style) под твой проект ai-factory**.
+План ориентирован на production-архитектуру: расширяем существующих агентов (dev/qa) до **learning agents с памятью и skill engine**.
+
+Я разбил на **итерации (phases)**, чтобы можно было внедрять постепенно без «переписывания всего».
+
+---
+
+# ✅ PHASE 0 — Базовый рефакторинг под learning-loop — DONE
+
+## TODO
+
+### 0.1 Unified Task Contract ✅
+* [x] `normalize_task_contract()` в decomposer/agent.py
+* [x] loader задач с episode_id поддержкой
+
+### 0.2 Execution ID (эпизоды) ✅
+* [x] `episode_id` на каждый запуск
+* [x] `log_episode_event()` в shared/episode.py
+
+### 0.3 Refactor Orchestrator ✅
+* [x] loop execution через LearningWorkflow
+* [x] N кандидатов + обратная связь через qa_feedback
+
+---
+
+# ✅ PHASE 1 — Memory Layer — DONE
+
+### 1.1 Storage ✅
+* [x] PostgreSQL: episodes, solutions, rewards, skills, failures
+* [x] asyncpg MemoryDB client (memory/db.py)
+* [x] migrations runner (memory/migrations/)
+
+### 1.2 Episodic Memory API ✅
+* [x] `store_episode()`, `get_best_solution()`, `check_regression()`
+
+### 1.3 Failure Memory ✅
+* [x] `record_failure()`, `get_failure_patterns()`, `get_failure_summary()`
+
+### 1.4 Vector Memory ✅
+* [x] Qdrant (memory/vector_store.py)
+* [x] embeddings для skills и episodes
+
+---
+
+# ✅ PHASE 2 — Skill Engine — DONE
+
+### 2.1–2.5 ✅
+* [x] Skill dataclass (memory/skill.py)
+* [x] SkillExtractor → skills/*.py + DB + Qdrant (memory/skill_extractor.py)
+* [x] SkillRetriever top-K (similarity × 0.6 + success_rate × 0.4)
+* [x] SkillExecutor subprocess sandbox
+* [x] SkillRegistry (skills/registry.json)
+
+---
+
+# ✅ PHASE 3 — Dev Agent Evolution — DONE
+
+### 3.1–3.4 ✅
+* [x] Multi-candidate generation (NUM_CANDIDATES env)
+* [x] Skill-aware prompting + failure patterns injection
+* [x] CodeComposer: AST dedup + skill merging (orchestrator/code_composer.py)
+* [x] Epsilon-greedy explore/exploit (EXPLORATION_RATE=0.3)
+
+---
+
+# ✅ PHASE 4 — QA + Reward System — DONE
+
+### 4.1–4.3 ✅
+* [x] RewardEngine: correctness × w_c + perf × w_p − complexity × w_x
+* [x] Cyclomatic complexity via AST walk
+* [x] Junit XML parsing (shared/tools.py)
+* [x] Regression detection (memory/episodic.py)
+* [x] Kafka publishing: qa.results + reward.computed
+
+---
+
+# ✅ PHASE 5 — Learning Loop (AlphaZero-like) — DONE
+
+### 5.1–5.3 ✅
+* [x] LearningWorkflow: N iterations, stagnation detection, perfect-score stop
+* [x] ReplayBuffer: good/bad deques, JSON persistence (memory/replay_buffer.py)
+* [x] PolicyUpdater: skill weights + prompt examples + exploration rate decay
+* [x] extract_skill_activity + policy_update_activity in worker
+
+---
+
+# 🧬 PHASE 6 — Self-Modification (самое важное)
+
+## 🎯 Цель
+
+Агент начинает **улучшать самого себя**
+
+---
+
+## TODO
+
+### 6.1 Skill refactoring
+
+* [ ] агент может:
+
+  * переписать skill
+  * оптимизировать
+
+---
+
+### 6.2 Skill merging
+
+* [ ] объединение навыков
+
+---
+
+### 6.3 Skill pruning
+
+* [ ] удаление слабых
+
+---
+
+### 6.4 Meta-agent (optional)
+
+* [ ] отдельный агент:
+
+  * анализирует performance
+  * предлагает изменения системы
+
+---
+
+# 🧪 PHASE 7 — Benchmarking (LeetCode pipeline)
+
+## 🎯 Цель
+
+Создать training environment
+
+---
+
+## TODO
+
+### 7.1 Dataset loader
+
+* [ ] LeetCode-like задачи
+* [ ] уровни сложности
+
+---
+
+### 7.2 Curriculum learning
+
+* [ ] easy → medium → hard
+
+---
+
+### 7.3 Metrics dashboard
+
+* [ ] success rate
+* [ ] avg reward
+* [ ] skill growth
+
+---
+
+# ⚙️ PHASE 8 — Infra (production)
+
+## TODO
+
+### 8.1 Docker orchestration
+
+* [ ] отдельные контейнеры:
+
+  * dev agent
+  * qa runner
+  * memory
+
+---
+
+### 8.2 Async execution
+
+* [ ] очередь задач (Kafka / Redis)
+
+---
+
+### 8.3 Observability
+
+* [ ] tracing (OpenTelemetry)
+* [ ] logs per episode
+
+---
+
+# 🔥 PHASE 9 — Anti-Patterns / Stability
+
+## TODO
+
+### 9.1 Loop protection
+
+* [ ] max iterations
+* [ ] stagnation detection
+
+---
+
+### 9.2 Reward hacking protection
+
+* [ ] тесты с hidden cases
+
+---
+
+### 9.3 Determinism
+
+* [ ] фиксированные seed
+* [ ] reproducible runs
+
+---
+
+# 📦 Финальный результат
+```text
+Self-improving AI Factory:
+- агенты учатся
+- накапливают skills
+- переиспользуют код
+- улучшают себя
+- работают как RL система
+```
+
+---
+
+### 10.
+Существенное ограничение:
+использовать контракты и систему передачи сообщений с помощью текущего мехаихма через kafka
+
+
+
+
