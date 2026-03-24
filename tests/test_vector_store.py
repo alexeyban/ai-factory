@@ -5,7 +5,7 @@ Qdrant client is fully mocked — no real Qdrant server required.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
