@@ -922,8 +922,16 @@ class ProjectWorkflow:
             ):
                 final_status = "needs_attention"
 
+            log_episode_event(
+                episode_id=episode_id,
+                event_type="workflow_finished",
+                agent="orchestrator",
+                data={"workflow_id": workflow_id, "status": final_status},
+            )
+
             return {
                 "status": final_status,
+                "episode_id": episode_id,
                 "project_name": project_name,
                 "pm_result": pm_result,
                 "architect_result": architect_result,
