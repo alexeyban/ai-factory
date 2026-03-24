@@ -918,6 +918,9 @@ def _build_dev_prompt(
     description: str,
     attempt_number: int,
     qa_feedback: Dict[str, Any] | None = None,
+    skills_context: str = "",
+    failure_patterns: str = "",
+    strategy: str = "explore",
 ) -> str:
     qa_feedback_text = "No QA feedback yet. Produce the initial implementation."
     if qa_feedback:
