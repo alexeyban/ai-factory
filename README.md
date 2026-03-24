@@ -2,200 +2,207 @@
 
 AI Factory is a Temporal-based multi-agent software delivery system. It takes a project brief, creates a project repository, writes versioned delivery documents, decomposes work into agent tasks, generates code, runs QA, records project state, and keeps artifacts committed into a Git-backed project workspace.
 
-The current implementation is focused on a practical local pipeline: Docker services, Temporal orchestration, prompt-driven agent roles, OpenAI-compatible LLM access with provider fallback, and generated project repositories under `workspace/projects/`.
-
 ## Current Flow
 
-The active end-to-end path runs through the Temporal worker in [orchestrator/](/home/legion/PycharmProjects/ai-factory/orchestrator):
+```
+OrchestratorWorkflow
+  → pm_activity          (delivery plan, task breakdown, agent assignments)
+  → architect_activity   (architecture docs + task list with assigned_agent)
+  → decomposer_activity  (split tasks exceeding token limit into subtasks)
+  → process_all_tasks    (wave-based dispatch with dependency ordering)
+      → dev_activity     (implement in task branch; multi-file output supported)
+      → qa_activity      (lint + typecheck + pytest + LLM summary; merge to main)
+      → dev_activity     (self-healing fix cycle, up to DEV_QA_MAX_FIX_ATTEMPTS=2)
+  → analyst_activity     (final project state, risks, recommendations)
+  → pm_activity          (recovery re-planning if tasks blocked, up to PM_MAX_RECOVERY_CYCLES=2)
+  → cleanup_stale_branches_activity (delete merged task-* branches)
+```
 
-1. `PM` captures the incoming request, creates a structured delivery plan, and writes agent assignments.
-2. `Architect` produces a versioned architecture package and task breakdown.
-3. `Decomposer` splits any tasks whose prompt exceeds the token limit into atomic subtasks.
-4. `Dev` implements work in task branches.
-5. `QA` validates task branches and merges approved work into `main`.
-6. `Analyst` writes the current project state, risks, and recommendations.
-7. `PM recovery` can re-plan blocked work and split or reassign tasks.
-
-The repo still contains Kafka-oriented standalone agents, but the primary working path is the Temporal workflow.
+The repo still contains Kafka-oriented standalone agents under `agents/dispatcher/`, but the primary working path is the Temporal workflow.
 
 ## Main Components
 
-- [main.py](/home/legion/PycharmProjects/ai-factory/main.py): simple local workflow launcher.
-- [orchestrator/workflows.py](/home/legion/PycharmProjects/ai-factory/orchestrator/workflows.py): Temporal workflow definitions and failure handling.
-- [orchestrator/activities.py](/home/legion/PycharmProjects/ai-factory/orchestrator/activities.py): PM, architect, dev, QA, analyst, recovery, continuation, git, and artifact logic.
-- [orchestrator/worker.py](/home/legion/PycharmProjects/ai-factory/orchestrator/worker.py): Temporal worker bootstrap.
-- [shared/llm.py](/home/legion/PycharmProjects/ai-factory/shared/llm.py): provider-agnostic LLM adapter with fallback, rate-limit awareness, and cooldown memory.
-- [shared/prompts](/home/legion/PycharmProjects/ai-factory/shared/prompts): prompt definitions for PM, architect, dev, QA, and analyst roles.
-- [shared/git.py](/home/legion/PycharmProjects/ai-factory/shared/git.py): generated project git initialization, remote setup, branch, commit, merge, and push helpers.
-- [docker-compose.yml](/home/legion/PycharmProjects/ai-factory/docker-compose.yml): local stack definition.
-
-## Generated Project Behavior
-
-Each generated project is created under [workspace/projects](/home/legion/PycharmProjects/ai-factory/workspace/projects). The pipeline currently:
-
-- initializes a git repository
-- connects it to a GitHub remote such as `git@github.com:alexeyban/<project>.git`
-- writes versioned PM documents, architecture documents, QA reports, analyst reports, plans, and continuation notes
-- commits and pushes those artifacts as the workflow progresses
-- uses task branches for implementation work and merges validated changes back to `main`
-
-For architecture specifically, each iteration creates versioned `.md` and `.drawio` files.
+| File | Role |
+|------|------|
+| `main.py` | Local workflow launcher |
+| `orchestrator/workflows.py` | Temporal workflow + subworkflow definitions |
+| `orchestrator/activities.py` | All activity implementations |
+| `orchestrator/worker.py` | Temporal worker bootstrap |
+| `shared/llm.py` | Provider-agnostic LLM adapter with fallback and cooldown |
+| `shared/git.py` | Git repo init, branch, commit, merge, push, GitHub PR helpers |
+| `shared/tools.py` | Local deterministic skills: syntax, lint, typecheck, pytest, file tree |
+| `shared/prompts/<role>/` | `system.txt` + `user.txt` per agent role |
+| `scripts/debug_*.py` | Isolation test runners for each agent (no Temporal needed) |
 
 ## Agent Roles
 
-- `PM`: senior technical project manager who plans delivery, documents tasks for all agents, checks actual completion, and re-plans blocked or oversized work.
-- `Architect`: senior solution architect covering backend, frontend, data, AI/ML, infrastructure, messaging, security, and observability.
-- `Dev`: senior Python developer and senior data scientist focused on production Python, ML, and AI implementation.
-- `QA`: senior automation QA engineer responsible for impartial unit, integration, and end-to-end validation.
-- `Analyst`: senior system analyst and data analyst who summarizes delivery state, issues, patterns, risks, and recommendations.
+Each role has prompt templates in `shared/prompts/<role>/`.
 
-## Recovery And Continuation
+- **PM** — delivery plan, task assignments, agent guidance, recovery re-planning
+- **Architect** — versioned architecture docs (`.md` + `.drawio`) and task breakdown with `assigned_agent`
+- **Decomposer** — splits tasks whose prompt exceeds `TASK_DECOMPOSITION_TOKEN_LIMIT` (default 8000 tokens)
+- **Dev** — implements in a task branch; outputs one or more files using `=== FILE: path ===` format
+- **QA** — runs syntax check, lint (ruff), typecheck (mypy), pytest+coverage, LLM summary; merges to main on pass
+- **Analyst** — records final state, risks, recommendations
 
-The orchestration layer includes several resilience mechanisms:
+## Task Contract
 
-- `Dev -> QA -> Dev` self-healing loop with structured QA feedback
-- PM-assisted recovery cycles for blocked or failed tasks
-- persisted task state in `.ai_factory/tasks`
-- continuation plans in `.ai_factory/continuations`
-- a 15-minute execution budget per individual task before continuation planning is written
-- non-retryable workflow failure on internal Python logic bugs such as `AttributeError` or `TypeError`
+Every task passed between agents must conform to this schema:
+
+```json
+{
+  "task_id": "T001",
+  "title": "Short descriptive title",
+  "description": "Implementation-ready description",
+  "type": "feature|bugfix|refactor|setup|test",
+  "assigned_agent": "dev|qa|architect|pm",
+  "dependencies": [],
+  "input":  { "files": [], "context": "..." },
+  "output": { "files": ["path/to/target.py"], "artifacts": [], "expected_result": "..." },
+  "verification": { "method": "pytest|manual|review", "test_file": null, "criteria": [] },
+  "acceptance_criteria": [],
+  "estimated_size": "small|medium|large",
+  "can_parallelize": true
+}
+```
+
+The dev agent writes the files listed in `output.files`. When multiple files are needed, the LLM uses `=== FILE: path ===` separators in its response.
+
+## Dev Agent: Multi-File Output
+
+The dev agent supports writing multiple files per task:
+
+```
+=== FILE: calclib/calc.py ===
+<complete file content>
+
+=== FILE: tests/test_calc.py ===
+<complete file content>
+```
+
+File paths come from the task contract's `output.files` list. If the LLM returns a single block with no headers, it is written to `output.files[0]` (or a slug-derived fallback).
 
 ## LLM Layer
 
-The shared LLM adapter in [shared/llm.py](/home/legion/PycharmProjects/ai-factory/shared/llm.py) currently supports:
+`shared/llm.py` provides OpenAI-compatible chat completions with:
+- Provider fallback: `opencode → gemini → openai → deepseek → ollama`
+- 15-second cooldown after a provider returns 429
+- Token estimation to enforce `LLM_MAX_PROMPT_TOKENS` (default 8000)
+- MiniMax M2.5 Free aliases for opencode provider
+- Mock mode via `MOCK_LLM=true`
 
-- OpenAI-compatible chat completion calls
-- provider-specific model normalization
-- mock mode
-- fallback across providers
-- Gemini local rate limiting
-- 12-hour provider cooldown memory after provider-side rate-limit failures
+## Key Environment Variables
 
-Typical provider order is:
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LLM_PROVIDER` | `opencode` | Primary LLM provider |
+| `LLM_MODEL` | `opencode/bigpickle` | Primary model |
+| `LLM_FALLBACK_ORDER` | `opencode,gemini,openai,deepseek,ollama` | Fallback chain |
+| `LLM_MAX_PROMPT_TOKENS` | `8000` | Token limit before decomposition |
+| `LLM_PROVIDER_COOLDOWN_SECONDS` | `15` | Cooldown after 429 |
+| `MOCK_LLM` | `false` | Skip real LLM calls |
+| `OLLAMA_MODEL` | `llama3:latest` | Local Ollama model |
+| `TEMPORAL_ADDRESS` | `temporal:7233` | Temporal server |
+| `TASK_QUEUE` | `ai-factory-tasks` | Temporal task queue |
+| `WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES` | `30` | Per-activity LLM timeout |
+| `DEV_QA_MAX_FIX_ATTEMPTS` | `2` | Self-healing loop limit |
+| `PM_MAX_RECOVERY_CYCLES` | `2` | PM re-planning limit |
+| `MAX_TASK_EXECUTION_SECONDS` | `900` | Per-task budget |
+| `MAX_WAVE_SIZE` | `20` | Max concurrent tasks per wave |
+| `INTER_WAVE_RATE_LIMIT_DELAY_SECONDS` | `30` | Delay between waves after 429 |
+| `PROJECTS_ROOT` | `/workspace/projects` | Generated project repos |
+| `WORKSPACE_ROOT` | `/workspace` | Pipeline workspace root |
+| `AI_FACTORY_ROOT` | `/workspace/.ai_factory` | Contexts, tasks, continuations |
 
-1. `opencode`
-2. `gemini`
-3. `openai`
-4. `deepseek`
-5. `ollama`
+## Isolation Debug Scripts
 
-When a provider returns `429`, it is marked on cooldown and skipped for subsequent requests until the cooldown expires.
-
-Relevant environment variables include:
-
-- `MOCK_LLM`
-- `LLM_PROVIDER`
-- `LLM_MODEL`
-- `LLM_FALLBACK_ORDER`
-- `LLM_PROVIDER_COOLDOWN_SECONDS`
-- `LLM_MAX_PROMPT_TOKENS` (default `8000` — tasks exceeding this are decomposed)
-- `OPENCODE_API_KEY`
-- `GEMINI_API_KEY`
-- `OPENAI_API_KEY`
-- `DEEPSEEK_API_KEY`
-- `OLLAMA_API_KEY` or `OLLANA_API_KEY`
-
-Workflow control variables:
-
-- `TEMPORAL_ADDRESS` / `TASK_QUEUE`
-- `WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES` (default `30`)
-- `DEV_QA_MAX_FIX_ATTEMPTS` (default `2`)
-- `PM_MAX_RECOVERY_CYCLES` (default `2`)
-- `MAX_TASK_EXECUTION_SECONDS` (default `900`)
-
-## Local Stack
-
-The default Docker stack includes:
-
-- Zookeeper
-- Kafka
-- Schema Registry
-- Postgres
-- Temporal
-- Temporal Web UI
-- Orchestrator worker
-- Per-type agent workers: `dev-worker`, `qa-worker`, `setup-worker`, `docs-worker`, `refactor-worker`
-
-Each agent type listens on its own Temporal task queue (`dev-agent-tasks`, `qa-agent-tasks`, etc.) so that slow tasks on one queue do not block other agent types.
-
-Temporal Web UI:
-
-- `http://localhost:8088`
-
-## Running Locally
-
-Start the stack:
+Each agent can be tested independently without running the full Docker stack:
 
 ```bash
+# PM agent
+PYTHONPATH=. LLM_MODEL=opencode/bigpickle .venv/bin/python scripts/debug_pm.py
+
+# Architect (feed it PM output)
+PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+    PM_OUTPUT=/tmp/debug_pm_<id>.json \
+    .venv/bin/python scripts/debug_architect.py
+
+# Decomposer (feed it architect output)
+PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+    ARCHITECT_OUTPUT=/tmp/debug_architect_<id>.json \
+    .venv/bin/python scripts/debug_decomposer.py
+
+# Dev agent (single task)
+PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+    .venv/bin/python scripts/debug_dev.py
+
+# QA agent (single artifact)
+PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+    ARTIFACT=/path/to/artifact.py \
+    .venv/bin/python scripts/debug_qa.py
+```
+
+All debug scripts default to `/tmp/ai-factory-debug/` as workspace and the `calclib` GitHub repo as the target project. Override with env vars — see the docstring at the top of each script.
+
+## Running the Full Stack
+
+```bash
+# Start services
 docker compose up -d --build
-```
 
-Check status:
-
-```bash
+# Check status
 docker compose ps
-```
 
-Launch a local workflow manually:
-
-```bash
+# Launch a workflow
 .venv/bin/python main.py
-```
 
-Smoke test the LLM adapter:
-
-```bash
+# Smoke test LLM adapter
 .venv/bin/python scripts/test_llm.py --model opencode/bigpickle
-```
 
-Run tests:
-
-```bash
+# Run tests
 pytest tests/
-```
 
-Stop the stack:
-
-```bash
+# Stop
 docker compose down --remove-orphans
 ```
 
-## Pipeline Status (2026-03-23)
+Temporal Web UI: `http://localhost:8088`
 
-The core pipeline is functional end-to-end. Recent fixes resolved the major failure modes:
+## State Persistence
 
-| Issue | Status |
-|-------|--------|
-| PM / architect / decomposer returning `status: null` in slim envelopes | Fixed |
-| Decomposer receiving full PM execution plan as raw text (payload overflow) | Fixed |
-| Task cache returning stale "success" from previous workflow runs | Fixed |
-| Concurrent `git config` calls returning exit 255 on shared repos | Fixed |
-| `TMPRL1101` deadlock from oversized recovery description strings | Fixed |
-| Per-type agent containers isolating dev / qa / setup / docs / refactor queues | Done |
-| GitHub PR auto-merge via REST API (`shared/git.py`) | Done |
-| SSH auth with agent socket + HTTPS token fallback for git push | Done |
+| Location | Contents |
+|----------|----------|
+| `workspace/projects/<name>/` | Generated project repo |
+| `workspace/.ai_factory/contexts/<workflow_id>/` | JSON context files per pipeline stage |
+| `workspace/.ai_factory/tasks/` | Per-task state JSON (in-progress, success, fail) |
+| `workspace/.ai_factory/continuations/` | Continuation plans written on timeout |
 
-Known limitations still present:
-- Large projects (100+ tasks) can generate decomposed wave sizes that stress LLM rate limits.
-- GitHub PR merge occasionally fails if branch protection rules are active on the target repo.
-- The Kafka standalone agent path lags behind the Temporal implementation.
-- Generated code quality depends heavily on LLM provider capacity and model choice.
+## Pipeline Status (2026-03-24)
 
-## Current Limitations
+All major failure modes are fixed. Isolation tests pass for PM, Architect, Decomposer, and Dev.
 
-- The Kafka standalone agent path still lags behind the Temporal-first path.
-- Real LLM execution still depends on external provider quotas and availability.
-- Generated project delivery is functional but still experimental and not yet a production-grade autonomous software platform.
-- The generated code path is still inconsistent in how deeply it materializes full multi-file implementations for large projects.
+| Component | Status |
+|-----------|--------|
+| PM activity | ✓ Tested in isolation |
+| Architect activity | ✓ Tested — `assigned_agent` correctly populated |
+| Decomposer activity | ✓ Tested — all subtasks have type + title + assigned_agent |
+| Dev activity | ✓ Tested — multi-file output to correct target paths, QA passes |
+| QA activity | Script ready (`debug_qa.py`), full run pending |
+| Analyst activity | Not yet tested in isolation |
+| Full e2e pipeline | Not yet re-validated after recent fixes |
+
+Known limitations:
+- opencode/MiniMax free tier is consistently rate-limited during testing; falls back to OpenAI automatically
+- GitHub PR auto-merge requires branch protection to be configured with auto-merge enabled on the repo
+- The Kafka standalone agent path lags behind the Temporal implementation
 
 ## Purpose
 
 AI Factory is a practical prototype for autonomous, Git-backed software delivery:
-
 - prompt-defined specialist agents
-- Temporal orchestration
-- resumable task execution
-- versioned documentation
-- LLM-backed planning and generation
+- Temporal orchestration with wave-based task dispatch
+- resumable task execution with self-healing loops
+- versioned documentation committed to the project repo
+- LLM-backed planning and multi-file code generation
 - QA-driven correction loops
 - GitHub-oriented project delivery
