@@ -17,13 +17,12 @@ from memory.vector_store import VectorMemory, _stable_id, VECTOR_DIM
 # ---------------------------------------------------------------------------
 
 def _make_vector_memory() -> tuple[VectorMemory, MagicMock]:
-    """Return a VectorMemory with a mocked Qdrant client."""
-    with patch("memory.vector_store.QdrantClient.__init__", return_value=None):
-        vm = VectorMemory.__new__(VectorMemory)
-        vm._url = "http://localhost:6333"
-        vm._dim = VECTOR_DIM
-        vm._client = MagicMock()
-        return vm, vm._client
+    """Return a VectorMemory with a mocked Qdrant client (no real connection)."""
+    vm = VectorMemory.__new__(VectorMemory)
+    vm._url = "http://localhost:6333"
+    vm._dim = VECTOR_DIM
+    vm._client = MagicMock()
+    return vm, vm._client
 
 
 def _fake_embedding(value: float = 0.5) -> list[float]:
