@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
