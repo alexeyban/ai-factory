@@ -84,43 +84,31 @@
 
 ---
 
-# 🧬 PHASE 6 — Self-Modification (самое важное)
+# 🧬 PHASE 6 — Self-Modification (следующий этап)
 
 ## 🎯 Цель
 
 Агент начинает **улучшать самого себя**
 
----
+**Plan:** `plans/phase6_self_modification.md`
 
 ## TODO
 
 ### 6.1 Skill refactoring
-
-* [ ] агент может:
-
-  * переписать skill
-  * оптимизировать
-
----
+* [ ] агент может переписать/оптимизировать skill через LLM
+* [ ] триггер: success_rate < 0.4 после N использований
 
 ### 6.2 Skill merging
-
-* [ ] объединение навыков
-
----
+* [ ] объединение двух похожих skills в один обобщённый
+* [ ] косинусное сходство > 0.85 → кандидаты на слияние
 
 ### 6.3 Skill pruning
-
-* [ ] удаление слабых
-
----
+* [ ] удаление слабых (success_rate < threshold после min_uses)
+* [ ] архивирование в skills/archive/ вместо удаления
 
 ### 6.4 Meta-agent (optional)
-
-* [ ] отдельный агент:
-
-  * анализирует performance
-  * предлагает изменения системы
+* [ ] отдельный агент: анализирует performance метрики
+* [ ] предлагает изменения: новые skills, изменение весов
 
 ---
 
@@ -130,79 +118,62 @@
 
 Создать training environment
 
----
+**Plan:** `plans/phase7_benchmarking.md`
 
 ## TODO
 
 ### 7.1 Dataset loader
-
-* [ ] LeetCode-like задачи
-* [ ] уровни сложности
-
----
+* [ ] LeetCode-like задачи в JSON/YAML с тест-кейсами
+* [ ] уровни сложности: easy / medium / hard
 
 ### 7.2 Curriculum learning
-
-* [ ] easy → medium → hard
-
----
+* [ ] easy → medium → hard по мере роста avg_reward
+* [ ] автоматический переход при success_rate > 0.8
 
 ### 7.3 Metrics dashboard
-
-* [ ] success rate
-* [ ] avg reward
-* [ ] skill growth
+* [ ] success rate по уровням
+* [ ] avg reward per episode
+* [ ] skill growth over time (график)
 
 ---
 
 # ⚙️ PHASE 8 — Infra (production)
 
+**Plan:** `plans/phase8_infra.md`
+
 ## TODO
 
 ### 8.1 Docker orchestration
-
-* [ ] отдельные контейнеры:
-
-  * dev agent
-  * qa runner
-  * memory
-
----
+* [ ] отдельные контейнеры: dev agent, qa runner, memory services
+* [ ] health checks для Qdrant и PostgreSQL
 
 ### 8.2 Async execution
-
-* [ ] очередь задач (Kafka / Redis)
-
----
+* [ ] Kafka очередь для skill extraction (уже частично есть)
+* [ ] Redis для policy state (вместо файла)
 
 ### 8.3 Observability
-
-* [ ] tracing (OpenTelemetry)
-* [ ] logs per episode
+* [ ] OpenTelemetry tracing per episode
+* [ ] structured log aggregation per episode_id
 
 ---
 
 # 🔥 PHASE 9 — Anti-Patterns / Stability
 
+**Plan:** `plans/phase9_stability.md`
+
 ## TODO
 
-### 9.1 Loop protection
-
-* [ ] max iterations
-* [ ] stagnation detection
-
----
+### 9.1 Loop protection ✅ (частично)
+* [x] max iterations (MAX_ITERATIONS)
+* [x] stagnation detection (STAGNATION_THRESHOLD)
 
 ### 9.2 Reward hacking protection
-
-* [ ] тесты с hidden cases
-
----
+* [ ] hidden test cases, недоступные dev агенту
+* [ ] валидация reward через независимый QA run
 
 ### 9.3 Determinism
-
-* [ ] фиксированные seed
-* [ ] reproducible runs
+* [ ] RANDOM_SEED пробрасывать во все RNG (ReplayBuffer, SkillRetriever)
+* [ ] reproducible LearningWorkflow runs для отладки
 
 ---
 
