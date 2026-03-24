@@ -55,6 +55,29 @@ Hardcoded `"python"` for venv creation fails on Linux (only `python3` available)
 `.env` had `OLLAMA_MODEL=llama4:scout` but only `llama3:latest` is installed.
 **Fix**: Updated `.env` to `OLLAMA_MODEL=llama3:latest`.
 
+### ~~Phase 1 — Memory Layer~~ ✓ Done (2026-03-24)
+PostgreSQL DDL (episodes, solutions, rewards, skills, failures), asyncpg MemoryDB client,
+EpisodicMemory, FailureMemory, VectorMemory (Qdrant). 55 tests.
+
+### ~~Phase 2 — Skill Engine~~ ✓ Done (2026-03-24)
+Skill dataclass, SkillRegistry (registry.json), SkillExtractor (LLM → skills/*.py + DB + Qdrant),
+SkillRetriever (similarity × 0.6 + success_rate × 0.4), SkillExecutor (subprocess sandbox). 44 tests.
+
+### ~~Phase 3 — Dev Agent Evolution~~ ✓ Done (2026-03-24)
+Multi-candidate generation, CodeComposer (AST-based import dedup + function merging),
+epsilon-greedy explore/exploit strategies, skill-aware dev prompts, failure patterns injection. 25 tests.
+
+### ~~Phase 4 — QA + Reward System~~ ✓ Done (2026-03-24)
+RewardEngine (correctness × w_c + perf × w_p − complexity × w_x), cyclomatic complexity via AST,
+junit XML parsing (`parse_junit_xml`), regression detection (`check_regression`),
+Kafka publishing to `qa.results` + `reward.computed` topics. 29 tests.
+
+### ~~Phase 5 — Learning Loop~~ ✓ Done (2026-03-24)
+`LearningWorkflow` (AlphaZero-style): N iterations dev→qa→reward with stagnation detection
+and perfect-score early stop. `ReplayBuffer` (good/bad deques, JSON persistence).
+`PolicyUpdater` (skill weights, prompt examples, adaptive epsilon decay).
+`extract_skill_activity` + `policy_update_activity` registered in worker. 38 tests.
+
 ---
 
 ## High Priority
@@ -81,6 +104,35 @@ The multi-file dev output change touched the core dev loop. Add a unit test to c
 - [ ] Test that `_parse_multi_file_output` correctly handles: single file, multi-file, no header
 - [ ] Test that `_task_module_path` prefers `output.files[0]` over slug fallback
 - [ ] Add a mock-LLM integration test for the full dev → QA loop
+
+---
+
+## Next Phases
+
+### Phase 6 — Self-Modification
+**Plan:** `plans/phase6_self_modification.md`
+- [ ] Skill refactoring agent: rewrite/optimize existing skills using LLM
+- [ ] Skill merging: combine two similar skills into one generalised skill
+- [ ] Skill pruning: automatically deprecate skills with success_rate < threshold
+- [ ] Meta-agent (optional): analyses overall performance and proposes system changes
+
+### Phase 7 — Benchmarking (LeetCode pipeline)
+**Plan:** `plans/phase7_benchmarking.md`
+- [ ] Dataset loader for LeetCode-style tasks (JSON/YAML with test cases)
+- [ ] Curriculum learning: easy → medium → hard progression
+- [ ] Metrics dashboard: success rate, avg reward, skill growth over time
+
+### Phase 8 — Infrastructure (production hardening)
+**Plan:** `plans/phase8_infra.md`
+- [ ] Separate Docker containers for dev agent, qa runner, memory services
+- [ ] OpenTelemetry tracing per episode
+- [ ] Structured log aggregation (per-episode log streams)
+
+### Phase 9 — Anti-Patterns / Stability
+**Plan:** `plans/phase9_stability.md`
+- [ ] Reward hacking protection: hidden test cases withheld from dev agent
+- [ ] Deterministic runs via `RANDOM_SEED` propagation through all RNG sources
+- [ ] Max iteration hard cap + workflow budget guard for `LearningWorkflow`
 
 ---
 

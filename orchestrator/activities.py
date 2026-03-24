@@ -918,6 +918,9 @@ def _build_dev_prompt(
     description: str,
     attempt_number: int,
     qa_feedback: Dict[str, Any] | None = None,
+    skills_context: str = "",
+    failure_patterns: str = "",
+    strategy: str = "explore",
 ) -> str:
     qa_feedback_text = "No QA feedback yet. Produce the initial implementation."
     if qa_feedback:
@@ -944,6 +947,11 @@ def _build_dev_prompt(
     else:
         target_files_text = "  (not specified — infer from task description)"
 
+    if strategy == "explore":
+        strategy_instruction = "Strategy: EXPLORE — generate a fresh, original solution without relying on the skills above."
+    else:
+        strategy_instruction = "Strategy: EXPLOIT — leverage the available skills above to compose your solution."
+
     return render_prompt(
         DEV_USER_PROMPT,
         task_description=description,
@@ -953,6 +961,9 @@ def _build_dev_prompt(
         qa_feedback=qa_feedback_text,
         error_history=error_history_text,
         existing_code=_build_existing_code_context(task),
+        skills_context=skills_context,
+        failure_patterns=failure_patterns,
+        strategy_instruction=strategy_instruction,
     )
 
 
@@ -1277,6 +1288,9 @@ def _run_qa_for_artifact(
             run_git(repo_path, ["push", "origin", "--delete", branch_name], check=False)
             run_git(repo_path, ["branch", "-d", branch_name], check=False)
 
+        # --- Skill extraction (fire-and-forget) ---
+        _try_extract_skill(task, task_id, artifact)
+
     return {
         "task_id": task_id,
         "status": status,
@@ -1293,6 +1307,51 @@ def _run_qa_for_artifact(
         "project_repo_path": str(repo_path),
         "plan": plan_artifacts,
     }
+
+
+def _try_extract_skill(
+    task: Dict[str, Any],
+    task_id: str,
+    artifact: str | None,
+) -> None:
+    """
+    Attempt to extract a reusable skill from the successful dev artifact.
+
+    Runs synchronously but is entirely fire-and-forget — any exception is
+    logged as a warning and never propagates to the caller.
+    """
+    if not artifact:
+        return
+    artifact_path = Path(artifact)
+    if not artifact_path.exists():
+        return
+    try:
+        import asyncio
+        from memory.db import MemoryDB
+        from memory.vector_store import VectorMemory
+        from memory.skill_extractor import SkillExtractor
+
+        code = artifact_path.read_text(encoding="utf-8", errors="replace")
+        episode_id = task.get("episode_id", "")
+
+        db = MemoryDB()
+        vector = VectorMemory()
+        extractor = SkillExtractor(llm_fn=call_llm, vector_memory=vector, db=db)
+
+        async def _run():
+            await db.connect()
+            try:
+                await extractor.extract_from_solution(
+                    task_id=task_id,
+                    episode_id=episode_id,
+                    code=code,
+                )
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+    except Exception as exc:
+        LOGGER.warning("[qa] Skill extraction skipped: %s", exc)
 
 
 def _normalize_task(
@@ -1712,6 +1771,193 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Multi-candidate helpers (Phase 3)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_NUM_CANDIDATES = int(os.environ.get("NUM_CANDIDATES", "1"))
+_DEFAULT_EXPLORATION_RATE = float(os.environ.get("EXPLORATION_RATE", "0.3"))
+
+
+def _get_strategies(num_candidates: int, exploration_rate: float) -> list[str]:
+    """
+    Return a list of strategy strings for epsilon-greedy candidate generation.
+
+    Strategies: 'explore' (fresh, no skills) or 'exploit' (use top skills).
+    At least one candidate is always 'explore'.
+    """
+    n_explore = max(1, round(num_candidates * exploration_rate))
+    n_exploit = num_candidates - n_explore
+    strategies = ["explore"] * n_explore + ["exploit"] * n_exploit
+    return strategies
+
+
+def _build_skill_context_for_candidate(
+    task: Dict[str, Any],
+    strategy: str,
+) -> tuple[str, str]:
+    """
+    Return (skills_context, failure_patterns) strings for a given strategy.
+
+    In 'explore' mode both are empty so the dev agent works from scratch.
+    In 'exploit' mode we try to load skills synchronously from the registry
+    (no DB/Qdrant call at dev time — uses local registry.json only).
+    """
+    if strategy == "explore":
+        return "", ""
+
+    # Exploit: pull active skills from local registry
+    skills_context = ""
+    failure_patterns = ""
+    try:
+        from skills import SkillRegistry
+        registry = SkillRegistry()
+        active = registry.list_active_skills()[:3]
+        if active:
+            lines = ["## Available Skills (use if relevant)"]
+            for i, s in enumerate(active, 1):
+                tags = ", ".join(s.get("tags", [])) or "—"
+                lines.append(
+                    f"{i}. **{s.get('name', '?')}** "
+                    f"(success_rate: {s.get('success_rate', 0.0):.2f}, tags: {tags})"
+                )
+                desc = s.get("description", "")
+                if desc:
+                    lines.append(f"   {desc}")
+                if s.get("code_path"):
+                    lines.append(f"   Code: {s['code_path']}")
+            skills_context = "\n".join(lines)
+    except Exception as exc:
+        LOGGER.debug("[dev] Could not load skill registry: %s", exc)
+
+    return skills_context, failure_patterns
+
+
+def _generate_single_candidate(
+    task: Dict[str, Any],
+    task_id: str,
+    description: str,
+    attempt_number: int,
+    qa_feedback: Dict[str, Any] | None,
+    strategy: str,
+    candidate_idx: int,
+) -> Dict[str, Any]:
+    """
+    Generate one dev solution with the given strategy.
+
+    Uses CodeComposer in 'exploit' mode to compose skill code with LLM output.
+    Returns a result dict identical to _generate_dev_artifact output.
+    """
+    skills_context, failure_patterns = _build_skill_context_for_candidate(task, strategy)
+
+    repo_path = _ensure_project_scaffold(
+        task, task.get("project_description", description)
+    )
+    branch_name = _task_branch(task)
+    _prepare_task_branch(repo_path, branch_name, attempt_number)
+
+    plan_artifacts = _record_agent_plan(
+        repo_path,
+        "dev",
+        task,
+        description,
+        json.dumps(
+            {
+                "attempt_number": attempt_number,
+                "qa_feedback": qa_feedback or {},
+                "branch": branch_name,
+                "strategy": strategy,
+                "candidate_idx": candidate_idx,
+            },
+            indent=2,
+            ensure_ascii=True,
+        ),
+    )
+
+    raw_output = call_llm(
+        DEV_SYSTEM_PROMPT,
+        _build_dev_prompt(
+            task, description, attempt_number, qa_feedback,
+            skills_context=skills_context,
+            failure_patterns=failure_patterns,
+            strategy=strategy,
+        ),
+    )
+
+    # In exploit mode, compose with relevant skills
+    if strategy == "exploit":
+        try:
+            from skills import SkillRegistry
+            from memory.skill import Skill
+            from orchestrator.code_composer import CodeComposer
+            registry = SkillRegistry()
+            active = registry.list_active_skills()[:3]
+            skill_objs = [Skill.from_dict({"id": s["id"], **s}) for s in active]
+            raw_output = CodeComposer().compose(skill_objs, raw_output)
+        except Exception as exc:
+            LOGGER.debug("[dev] Skill composition skipped: %s", exc)
+
+    multi = _parse_multi_file_output(raw_output)
+    if multi:
+        written_paths = []
+        for rel_path, content in multi:
+            fp = repo_path / rel_path
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content)
+            written_paths.append(fp)
+        file_path = written_paths[0]
+        code = multi[0][1]
+    else:
+        code = _strip_code_fences(raw_output)
+        file_path = _task_module_path(task, repo_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(code)
+
+    LOGGER.info(
+        "[dev] Candidate %d/%s written to %s (%d bytes)",
+        candidate_idx, strategy, file_path, len(code),
+    )
+
+    docs_dir = repo_path / "documents" / "pm"
+    task_doc = _next_version_path(
+        docs_dir, f"task_{_task_slug(task)}_implementation", ".md"
+    )
+    _write_markdown(
+        task_doc,
+        f"Implementation: {_task_title(task)}",
+        f"## Branch\n`{branch_name}`\n\n## Attempt\n{attempt_number}\n\n"
+        f"## Strategy\n{strategy}\n\n"
+        f"## Artifact\n`{file_path.relative_to(repo_path)}`\n",
+    )
+
+    commit_sha = commit_all(
+        repo_path,
+        f"dev: implement {_task_slug(task)} attempt {attempt_number} [{strategy}]",
+    )
+    push_result = (
+        _sync_branch_to_remote(repo_path, branch_name)
+        if commit_sha
+        else {"ok": False, "stderr": "nothing to push"}
+    )
+
+    return {
+        "task_id": task_id,
+        "status": "success",
+        "artifact": str(file_path),
+        "code": code,
+        "attempt": attempt_number,
+        "strategy": strategy,
+        "candidate_idx": candidate_idx,
+        "mode": "autofix" if qa_feedback else "initial",
+        "branch": branch_name,
+        "commit": commit_sha,
+        "push": push_result,
+        "project_repo_path": str(repo_path),
+        "implementation_note": str(task_doc),
+        "plan": plan_artifacts,
+    }
+
+
 @activity.defn
 async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     start_time = datetime.now()
@@ -1720,32 +1966,224 @@ async def dev_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task_id = task.get("task_id", str(uuid.uuid4()))
     description = task.get("description", "")
     attempt = int(task.get("attempt_number", 1))
+    num_candidates = int(task.get("num_candidates", _DEFAULT_NUM_CANDIDATES))
+    exploration_rate = float(task.get("exploration_rate", _DEFAULT_EXPLORATION_RATE))
 
     LOGGER.info(
-        "[dev] Starting | workflow=%s | task_id=%s | attempt=%d",
-        workflow_id,
-        task_id,
-        attempt,
+        "[dev] Starting | workflow=%s | task_id=%s | attempt=%d | candidates=%d",
+        workflow_id, task_id, attempt, num_candidates,
     )
 
-    result = _generate_dev_artifact(
-        task=task,
-        task_id=task_id,
-        description=description,
-        attempt_number=attempt,
-        qa_feedback=task.get("qa_feedback"),
-    )
+    strategies = _get_strategies(num_candidates, exploration_rate)
+    qa_feedback = task.get("qa_feedback")
+
+    if num_candidates == 1:
+        # Fast path: single candidate, no asyncio overhead
+        result = _generate_single_candidate(
+            task, task_id, description, attempt, qa_feedback, strategies[0], 0
+        )
+        candidates = [result]
+    else:
+        import asyncio as _asyncio
+        import functools
+
+        loop = _asyncio.get_event_loop()
+        futures = [
+            loop.run_in_executor(
+                None,
+                functools.partial(
+                    _generate_single_candidate,
+                    task, task_id, description, attempt, qa_feedback, strategy, idx,
+                ),
+            )
+            for idx, strategy in enumerate(strategies)
+        ]
+        raw = await _asyncio.gather(*futures, return_exceptions=True)
+        candidates = []
+        for i, outcome in enumerate(raw):
+            if isinstance(outcome, BaseException):
+                LOGGER.warning("[dev] Candidate %d failed: %s", i, outcome)
+            else:
+                candidates.append(outcome)
+
+    if not candidates:
+        # All candidates failed — return a minimal failure result
+        result = {
+            "task_id": task_id,
+            "status": "error",
+            "artifact": "",
+            "code": "",
+            "attempt": attempt,
+            "error": "All candidate generations failed",
+        }
+    else:
+        # Pick first successful candidate as primary result for backward compat
+        result = candidates[0]
+        result["candidates"] = candidates
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(
-        "[dev] Completed | workflow=%s | task_id=%s | duration=%dms | artifact=%s",
-        workflow_id,
-        task_id,
-        duration_ms,
+        "[dev] Completed | workflow=%s | task_id=%s | duration=%dms | "
+        "candidates=%d/%d | artifact=%s",
+        workflow_id, task_id, duration_ms,
+        len(candidates), num_candidates,
         result.get("artifact", "none"),
     )
 
     return _wrap_activity_result(workflow_id, f"dev_{task_id}", result, start_time)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Reward helpers
+# ---------------------------------------------------------------------------
+
+_QA_RESULTS_TOPIC = "qa.results"
+_REWARD_COMPUTED_TOPIC = "reward.computed"
+
+
+def _attach_reward(qa_result: Dict[str, Any], code: str) -> Dict[str, Any]:
+    """
+    Compute and attach a reward scalar to a QA result dict.
+
+    Uses pytest junit counts if available (via run_pytest_with_coverage),
+    otherwise falls back to returncode-based inference.
+    Falls back silently if reward computation fails.
+    """
+    try:
+        from memory.reward import RewardEngine, QAMetrics
+
+        pytest_data = qa_result.get("pytest_data", {})
+        execution_time_ms = float(qa_result.get("execution_time_ms", 0.0))
+
+        engine = RewardEngine()
+        metrics = RewardEngine.metrics_from_pytest_result(
+            pytest_data,
+            execution_time_ms=execution_time_ms,
+        )
+        # Fallback: if no pytest data, infer from status
+        if metrics.tests_total == 0:
+            if qa_result.get("status") == "success":
+                metrics = QAMetrics(tests_passed=1, tests_failed=0, tests_total=1)
+            else:
+                metrics = QAMetrics(tests_passed=0, tests_failed=1, tests_total=1)
+
+        reward = engine.compute(metrics, code or "")
+        qa_result["reward"] = reward
+        qa_result["qa_metrics"] = {
+            "tests_passed": metrics.tests_passed,
+            "tests_failed": metrics.tests_failed,
+            "tests_total": metrics.tests_total,
+            "coverage": metrics.coverage,
+            "execution_time_ms": metrics.execution_time_ms,
+            "peak_memory_mb": metrics.peak_memory_mb,
+        }
+    except Exception as exc:
+        LOGGER.warning("[qa] Reward computation skipped: %s", exc)
+        qa_result.setdefault("reward", 0.0)
+    return qa_result
+
+
+async def _apply_reward_and_regression(
+    result: Dict[str, Any],
+    task_id: str,
+    episode_id: str,
+    iteration: int,
+    kafka_producer: Any | None = None,
+) -> Dict[str, Any]:
+    """
+    Run regression detection via EpisodicMemory and publish Kafka events.
+    Always returns result (with is_regression flag added).
+    """
+    reward = result.get("reward", 0.0)
+    is_regression = False
+
+    # Regression detection
+    try:
+        import os as _os
+        mem_dsn = _os.environ.get(
+            "MEMORY_DB_URL",
+            "postgresql://temporal:temporal@localhost:5432/ai_factory_memory",
+        )
+        from memory.db import MemoryDB
+        from memory.episodic import EpisodicMemory
+        db = MemoryDB(dsn=mem_dsn)
+        await db.connect()
+        try:
+            mem = EpisodicMemory(db)
+            is_regression = await mem.check_regression(task_id, reward)
+            if is_regression:
+                LOGGER.warning(
+                    "[qa] Regression detected for %s: reward=%.4f", task_id, reward
+                )
+        finally:
+            await db.close()
+    except Exception as exc:
+        LOGGER.debug("[qa] Regression check skipped: %s", exc)
+
+    result["is_regression"] = is_regression
+
+    # Kafka publishing (fire-and-forget)
+    _publish_qa_reward_events(
+        kafka_producer=kafka_producer,
+        episode_id=episode_id,
+        task_id=task_id,
+        iteration=iteration,
+        result=result,
+        reward=reward,
+        is_regression=is_regression,
+    )
+
+    return result
+
+
+def _publish_qa_reward_events(
+    kafka_producer: Any | None,
+    episode_id: str,
+    task_id: str,
+    iteration: int,
+    result: Dict[str, Any],
+    reward: float,
+    is_regression: bool,
+) -> None:
+    """Publish qa.results and reward.computed events to Kafka (fire-and-forget)."""
+    if kafka_producer is None:
+        return
+
+    from datetime import timezone
+    ts = datetime.now(timezone.utc).isoformat()
+    metrics = result.get("qa_metrics", {})
+
+    qa_payload = {
+        "episode_id": episode_id,
+        "task_id": task_id,
+        "iteration": iteration,
+        "tests_passed": metrics.get("tests_passed", 0),
+        "tests_failed": metrics.get("tests_failed", 0),
+        "tests_total": metrics.get("tests_total", 0),
+        "coverage": metrics.get("coverage", 0.0),
+        "execution_time_ms": metrics.get("execution_time_ms", 0.0),
+        "peak_memory_mb": metrics.get("peak_memory_mb", 0.0),
+        "reward": reward,
+        "timestamp": ts,
+    }
+    reward_payload = {
+        "episode_id": episode_id,
+        "task_id": task_id,
+        "iteration": iteration,
+        "reward": reward,
+        "is_regression": is_regression,
+        "is_best": not is_regression,
+        "timestamp": ts,
+    }
+
+    for topic, payload in [
+        (_QA_RESULTS_TOPIC, qa_payload),
+        (_REWARD_COMPUTED_TOPIC, reward_payload),
+    ]:
+        try:
+            kafka_producer.send(topic, payload)
+        except Exception as exc:
+            LOGGER.warning("[qa] Kafka publish to %s failed: %s", topic, exc)
 
 
 @activity.defn
@@ -1754,32 +2192,74 @@ async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task = _load_activity_input(task)
     workflow_id = task.get("_workflow_id", "unknown")
     task_id = task.get("task_id", str(uuid.uuid4()))
-    artifact = task.get("artifact", "")
     attempt = int(task.get("attempt_number", 1))
 
+    # Multi-candidate support (Phase 3): if 'candidates' is present, try each
+    # in order and return the first that passes, or the last result if all fail.
+    # Backward-compatible: falls back to single 'artifact' path when no candidates.
+    candidates: List[Dict[str, Any]] = task.get("candidates", [])
+    if not candidates:
+        single_artifact = task.get("artifact", "")
+        if single_artifact:
+            candidates = [{"artifact": single_artifact}]
+
+    if not candidates:
+        candidates = [{"artifact": ""}]
+
     LOGGER.info(
-        "[qa] Starting | workflow=%s | task_id=%s | artifact=%s | attempt=%d",
-        workflow_id,
-        task_id,
-        artifact[:50] if artifact else "none",
-        attempt,
+        "[qa] Starting | workflow=%s | task_id=%s | candidates=%d | attempt=%d",
+        workflow_id, task_id, len(candidates), attempt,
     )
 
-    result = _run_qa_for_artifact(
-        task,
-        task_id,
-        task.get("description", ""),
-        artifact,
-        attempt,
+    result = None
+    best_reward = -1.0
+    for idx, candidate in enumerate(candidates):
+        artifact = candidate.get("artifact", "")
+        LOGGER.info(
+            "[qa] Trying candidate %d/%d | artifact=%s",
+            idx + 1, len(candidates), artifact[:60] if artifact else "none",
+        )
+        candidate_result = _run_qa_for_artifact(
+            task,
+            task_id,
+            task.get("description", ""),
+            artifact,
+            attempt,
+        )
+        candidate_result["candidate_idx"] = idx
+        candidate_result["candidate_strategy"] = candidate.get("strategy", "explore")
+
+        # --- Phase 4: compute reward for this candidate ---
+        candidate_result = _attach_reward(
+            candidate_result,
+            candidate.get("code", ""),
+        )
+        candidate_reward = candidate_result.get("reward", 0.0)
+
+        if result is None or candidate_reward > best_reward:
+            best_reward = candidate_reward
+            result = candidate_result
+
+        if candidate_result.get("status") == "success":
+            if len(candidates) == 1:
+                LOGGER.info("[qa] Candidate %d passed — using as best result", idx + 1)
+                break
+
+    # --- Phase 4: regression detection + Kafka publishing ---
+    episode_id = task.get("episode_id", "")
+    result = await _apply_reward_and_regression(
+        result, task_id, episode_id, attempt,
+        kafka_producer=task.get("_kafka_producer"),
     )
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(
-        "[qa] Completed | workflow=%s | task_id=%s | duration=%dms | status=%s",
-        workflow_id,
-        task_id,
-        duration_ms,
+        "[qa] Completed | workflow=%s | task_id=%s | duration=%dms | "
+        "status=%s | reward=%.4f | regression=%s",
+        workflow_id, task_id, duration_ms,
         result.get("status", "unknown"),
+        result.get("reward", 0.0),
+        result.get("is_regression", False),
     )
 
     return _wrap_activity_result(workflow_id, f"qa_{task_id}", result, start_time)
@@ -2291,3 +2771,125 @@ async def process_all_tasks(input_data: Any) -> List[Dict[str, Any]]:
         "invoked by new workflow executions — dispatch is now handled by the workflow."
     )
     return []
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Learning Loop activities
+# ---------------------------------------------------------------------------
+
+@activity.defn
+async def extract_skill_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract a reusable skill from a successful QA result.
+
+    Wraps SkillExtractor.extract_from_solution() as a proper Temporal activity
+    so LearningWorkflow can await it and track the extracted skill count.
+
+    Input keys:
+        task_id     — task identifier
+        episode_id  — current episode
+        artifact    — path to the generated code file
+        code        — inline code (fallback if artifact unreadable)
+
+    Returns:
+        {"extracted": True/False, "skill_id": str | None}
+    """
+    task_id = input_data.get("task_id", "")
+    episode_id = input_data.get("episode_id", "")
+    artifact = input_data.get("artifact", "")
+    code = input_data.get("code", "")
+
+    if not code and artifact:
+        try:
+            code = Path(artifact).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+    if not code:
+        return {"extracted": False, "skill_id": None}
+
+    try:
+        from memory.db import MemoryDB
+        from memory.vector_store import VectorMemory
+        from memory.skill_extractor import SkillExtractor
+
+        db = MemoryDB()
+        vector = VectorMemory()
+        extractor = SkillExtractor(llm_fn=call_llm, vector_memory=vector, db=db)
+
+        await db.connect()
+        try:
+            skill = await extractor.extract_from_solution(
+                task_id=task_id,
+                episode_id=episode_id,
+                code=code,
+            )
+        finally:
+            await db.close()
+
+        skill_id = skill.id if skill is not None else None
+        return {"extracted": skill is not None, "skill_id": skill_id}
+
+    except Exception as exc:
+        LOGGER.warning("[extract_skill] Skipped: %s", exc)
+        return {"extracted": False, "skill_id": None}
+
+
+@activity.defn
+async def policy_update_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update Dev agent policy after an episode completes.
+
+    Wraps PolicyUpdater.update() — adjusts prompt examples, skill weights,
+    and exploration rate.  Changes apply to the NEXT episode.
+
+    Input keys:
+        episode_id      — just-completed episode
+        best_solution   — dict with reward, artifact, code, skills_used
+        best_reward     — float
+        replay_buffer_path — optional override for persistence path
+    """
+    episode_id = input_data.get("episode_id", "")
+    best_solution = input_data.get("best_solution")
+    best_reward = float(input_data.get("best_reward", 0.0))
+    buffer_path_str = input_data.get(
+        "replay_buffer_path",
+        str(Path(os.getenv("AI_FACTORY_WORKSPACE", "workspace"))
+            / ".ai_factory" / "replay_buffer.json"),
+    )
+
+    try:
+        from memory.replay_buffer import ReplayBuffer, BufferedSolution
+        from memory.policy_updater import PolicyUpdater
+
+        buf_path = Path(buffer_path_str)
+        buf = ReplayBuffer.load(buf_path)
+
+        if best_solution is not None:
+            buf.add(
+                BufferedSolution(
+                    task_id=best_solution.get("task_id", ""),
+                    episode_id=episode_id,
+                    iteration=int(best_solution.get("iteration", 0)),
+                    reward=best_reward,
+                    artifact=best_solution.get("artifact", ""),
+                    code=best_solution.get("code", ""),
+                    skills_used=best_solution.get("skills_used", []),
+                )
+            )
+            buf.save(buf_path)
+
+        updater = PolicyUpdater(replay_buffer=buf)
+        await updater.update(
+            episode_id=episode_id,
+            best_solution=best_solution,
+            best_reward=best_reward,
+        )
+
+        LOGGER.info(
+            "[policy_update] episode=%s reward=%.4f buffer=%s",
+            episode_id, best_reward, buf.size(),
+        )
+        return {"ok": True, "buffer_size": buf.size()}
+
+    except Exception as exc:
+        LOGGER.warning("[policy_update] Skipped: %s", exc)
+        return {"ok": False, "error": str(exc)}

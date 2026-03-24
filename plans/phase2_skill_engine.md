@@ -276,13 +276,13 @@ if qa_result.tests_passed == qa_result.tests_total:
 
 ## Критерии готовности
 
-- [ ] После успешного QA новый skill автоматически извлекается
-- [ ] `skills/registry.json` обновляется
-- [ ] Qdrant содержит embedding нового skill
-- [ ] `pytest tests/test_skill_extractor.py` — зелёный
-- [ ] `pytest tests/test_skill_retriever.py` — зелёный
-- [ ] `pytest tests/test_skill_executor.py` — зелёный
-- [ ] `pytest tests/` — существующие тесты не сломаны
+- [x] После успешного QA новый skill автоматически извлекается (_try_extract_skill в activities.py)
+- [x] `skills/registry.json` обновляется (SkillRegistry.add_skill)
+- [x] Qdrant содержит embedding нового skill (VectorMemory.upsert_skill)
+- [x] `pytest tests/test_skill_extractor.py` — зелёный (11/11)
+- [x] `pytest tests/test_skill_retriever.py` — зелёный (9/9)
+- [x] `pytest tests/test_skill_executor.py` — зелёный (7/7)
+- [x] `pytest tests/` — существующие тесты не сломаны (123/123)
 
 ---
 

@@ -17,6 +17,12 @@ QA feedback:
 
 {existing_code}
 
+{skills_context}
+
+{failure_patterns}
+
+{strategy_instruction}
+
 Implementation rules:
 - Treat the task input/output/verification fields as the delivery contract
 - Write the COMPLETE content of every target file listed above

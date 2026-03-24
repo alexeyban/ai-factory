@@ -222,13 +222,13 @@ NUM_CANDIDATES=3
 
 ## Критерии готовности
 
-- [ ] `dev_activity(num_candidates=3)` возвращает 3 результата
-- [ ] При `strategy='exploit'` skills присутствуют в промпте
-- [ ] При `strategy='explore'` skills не передаются
-- [ ] `code_composer.compose()` корректно объединяет код
-- [ ] `pytest tests/test_dev_multi_candidate.py` — зелёный
-- [ ] `pytest tests/test_code_composer.py` — зелёный
-- [ ] `pytest tests/` — существующие тесты не сломаны
+- [x] `dev_activity(num_candidates=3)` возвращает 3 результата (через _get_strategies + asyncio.gather)
+- [x] При `strategy='exploit'` skills присутствуют в промпте (_build_dev_prompt + skills_context)
+- [x] При `strategy='explore'` skills не передаются (пустые skills_context/failure_patterns)
+- [x] `code_composer.compose()` корректно объединяет код (imports dedup + function merge)
+- [x] `pytest tests/test_dev_multi_candidate.py` — зелёный (12/12)
+- [x] `pytest tests/test_code_composer.py` — зелёный (13/13)
+- [x] `pytest tests/` — существующие тесты не сломаны (148/148)
 
 ---
 

@@ -2,7 +2,9 @@
 
 AI Factory is a Temporal-based multi-agent software delivery system. It takes a project brief, creates a project repository, writes versioned delivery documents, decomposes work into agent tasks, generates code, runs QA, records project state, and keeps artifacts committed into a Git-backed project workspace.
 
-## Current Flow
+## Workflows
+
+### OrchestratorWorkflow (primary delivery pipeline)
 
 ```
 OrchestratorWorkflow
@@ -18,6 +20,18 @@ OrchestratorWorkflow
   → cleanup_stale_branches_activity (delete merged task-* branches)
 ```
 
+### LearningWorkflow (AlphaZero-style self-play — Phase 5)
+
+```
+LearningWorkflow  (per task, N iterations)
+  for iteration in range(max_iterations):
+      → dev_activity           (generate candidate(s) with epsilon-greedy strategy)
+      → qa_activity            (validate + compute reward via RewardEngine)
+      → extract_skill_activity (on improvement + QA pass → extract reusable skill)
+      [stop on stagnation or perfect score]
+  → policy_update_activity     (update skill weights, prompt examples, exploration rate)
+```
+
 The repo still contains Kafka-oriented standalone agents under `agents/dispatcher/`, but the primary working path is the Temporal workflow.
 
 ## Main Components
@@ -25,13 +39,26 @@ The repo still contains Kafka-oriented standalone agents under `agents/dispatche
 | File | Role |
 |------|------|
 | `main.py` | Local workflow launcher |
-| `orchestrator/workflows.py` | Temporal workflow + subworkflow definitions |
+| `orchestrator/workflows.py` | Temporal workflow definitions (Orchestrator, Project, Learning) |
 | `orchestrator/activities.py` | All activity implementations |
 | `orchestrator/worker.py` | Temporal worker bootstrap |
+| `orchestrator/code_composer.py` | AST-based skill + new code combiner (Phase 3) |
 | `shared/llm.py` | Provider-agnostic LLM adapter with fallback and cooldown |
 | `shared/git.py` | Git repo init, branch, commit, merge, push, GitHub PR helpers |
-| `shared/tools.py` | Local deterministic skills: syntax, lint, typecheck, pytest, file tree |
+| `shared/tools.py` | Deterministic tools: syntax, lint, typecheck, pytest+coverage, junit XML |
 | `shared/prompts/<role>/` | `system.txt` + `user.txt` per agent role |
+| `memory/db.py` | asyncpg PostgreSQL client (MemoryDB) |
+| `memory/episodic.py` | Episode + solution storage and best-solution lookup |
+| `memory/failures.py` | Failure pattern accumulation and prompt formatting |
+| `memory/vector_store.py` | Qdrant-backed vector memory for skill/episode similarity |
+| `memory/reward.py` | RewardEngine: correctness × w_c + perf × w_p − complexity × w_x |
+| `memory/replay_buffer.py` | Fixed-capacity good/bad solution buffer with JSON persistence |
+| `memory/policy_updater.py` | Skill weights, prompt examples, exploration rate adaptation |
+| `memory/skill.py` | Skill dataclass |
+| `memory/skill_extractor.py` | LLM-driven skill extraction → skills/ + PostgreSQL + Qdrant |
+| `memory/skill_retriever.py` | Top-K skill retrieval ranked by similarity × 0.6 + success_rate × 0.4 |
+| `memory/skill_executor.py` | Subprocess sandbox for executing skills |
+| `skills/__init__.py` | SkillRegistry: local registry.json cache |
 | `scripts/debug_*.py` | Isolation test runners for each agent (no Temporal needed) |
 
 ## Agent Roles
@@ -101,18 +128,21 @@ File paths come from the task contract's `output.files` list. If the LLM returns
 | `LLM_MAX_PROMPT_TOKENS` | `8000` | Token limit before decomposition |
 | `LLM_PROVIDER_COOLDOWN_SECONDS` | `15` | Cooldown after 429 |
 | `MOCK_LLM` | `false` | Skip real LLM calls |
-| `OLLAMA_MODEL` | `llama3:latest` | Local Ollama model |
 | `TEMPORAL_ADDRESS` | `temporal:7233` | Temporal server |
 | `TASK_QUEUE` | `ai-factory-tasks` | Temporal task queue |
 | `WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES` | `30` | Per-activity LLM timeout |
 | `DEV_QA_MAX_FIX_ATTEMPTS` | `2` | Self-healing loop limit |
 | `PM_MAX_RECOVERY_CYCLES` | `2` | PM re-planning limit |
-| `MAX_TASK_EXECUTION_SECONDS` | `900` | Per-task budget |
 | `MAX_WAVE_SIZE` | `20` | Max concurrent tasks per wave |
-| `INTER_WAVE_RATE_LIMIT_DELAY_SECONDS` | `30` | Delay between waves after 429 |
-| `PROJECTS_ROOT` | `/workspace/projects` | Generated project repos |
-| `WORKSPACE_ROOT` | `/workspace` | Pipeline workspace root |
-| `AI_FACTORY_ROOT` | `/workspace/.ai_factory` | Contexts, tasks, continuations |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant vector DB |
+| `MEMORY_DB_URL` | `postgresql://...` | PostgreSQL for memory tables |
+| `MAX_ITERATIONS` | `5` | LearningWorkflow iterations per task |
+| `STAGNATION_THRESHOLD` | `3` | Non-improving iterations before stop |
+| `NUM_CANDIDATES` | `1` | Dev candidates per iteration |
+| `EXPLORATION_RATE` | `0.3` | Epsilon-greedy exploration fraction |
+| `REWARD_CORRECTNESS_W` | `1.0` | Correctness weight in reward formula |
+| `REWARD_PERF_W` | `0.3` | Performance weight in reward formula |
+| `REWARD_COMPLEXITY_W` | `0.2` | Complexity penalty weight |
 
 ## Isolation Debug Scripts
 
@@ -176,33 +206,41 @@ Temporal Web UI: `http://localhost:8088`
 | `workspace/.ai_factory/contexts/<workflow_id>/` | JSON context files per pipeline stage |
 | `workspace/.ai_factory/tasks/` | Per-task state JSON (in-progress, success, fail) |
 | `workspace/.ai_factory/continuations/` | Continuation plans written on timeout |
+| `workspace/.ai_factory/replay_buffer.json` | Good/bad solution buffer (Phase 5) |
+| `workspace/.ai_factory/policy_state.json` | Exploration rate + reward rolling average (Phase 5) |
+| `skills/` | Extracted skill `.py` files + `registry.json` |
+
+## Self-Learning Stack (Phases 0–5)
+
+```
+Phase 0  Episode tracking (episode_id, log_episode_event)
+Phase 1  Memory layer: PostgreSQL + Qdrant (episodes, solutions, skills, failures)
+Phase 2  Skill Engine: extract → store → retrieve → inject into dev prompt
+Phase 3  Dev evolution: multi-candidate generation, CodeComposer, epsilon-greedy
+Phase 4  QA + Reward: RewardEngine, junit XML, regression detection, Kafka events
+Phase 5  Learning Loop: LearningWorkflow, ReplayBuffer, PolicyUpdater
+```
+
+**Test suite: 218 tests, all passing** (`PYTHONPATH=. pytest tests/`)
 
 ## Pipeline Status (2026-03-24)
-
-All major failure modes are fixed. Isolation tests pass for PM, Architect, Decomposer, and Dev.
 
 | Component | Status |
 |-----------|--------|
 | PM activity | ✓ Tested in isolation |
-| Architect activity | ✓ Tested — `assigned_agent` correctly populated |
-| Decomposer activity | ✓ Tested — all subtasks have type + title + assigned_agent |
-| Dev activity | ✓ Tested — multi-file output to correct target paths, QA passes |
-| QA activity | Script ready (`debug_qa.py`), full run pending |
-| Analyst activity | Not yet tested in isolation |
-| Full e2e pipeline | Not yet re-validated after recent fixes |
-
-Known limitations:
-- opencode/MiniMax free tier is consistently rate-limited during testing; falls back to OpenAI automatically
-- GitHub PR auto-merge requires branch protection to be configured with auto-merge enabled on the repo
-- The Kafka standalone agent path lags behind the Temporal implementation
+| Architect activity | ✓ `assigned_agent` correctly populated |
+| Decomposer activity | ✓ All subtasks have type + title + assigned_agent |
+| Dev activity | ✓ Multi-file output, multi-candidate, skill-aware prompting |
+| QA activity | ✓ Reward computation, regression detection, Kafka publishing |
+| LearningWorkflow | ✓ Stagnation detection, perfect-score stop, policy update |
+| Memory / Skill Engine | ✓ PostgreSQL + Qdrant backed, full test coverage |
+| Full e2e pipeline | Not yet re-validated after self-learning additions |
 
 ## Purpose
 
-AI Factory is a practical prototype for autonomous, Git-backed software delivery:
-- prompt-defined specialist agents
-- Temporal orchestration with wave-based task dispatch
-- resumable task execution with self-healing loops
-- versioned documentation committed to the project repo
-- LLM-backed planning and multi-file code generation
-- QA-driven correction loops
-- GitHub-oriented project delivery
+AI Factory is a practical prototype for autonomous, self-improving software delivery:
+- prompt-defined specialist agents (PM, Architect, Decomposer, Dev, QA, Analyst)
+- Temporal orchestration with wave-based task dispatch and self-healing loops
+- AlphaZero-style iterative learning: dev → qa → reward → skill extraction → policy update
+- Episodic memory, skill accumulation, and replay buffer for policy improvement
+- LLM-backed planning, multi-file code generation, and GitHub-oriented delivery

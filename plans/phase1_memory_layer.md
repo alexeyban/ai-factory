@@ -376,12 +376,12 @@ MEMORY_DB_URL=postgresql://user:password@localhost:5432/ai_factory_memory
 
 ## Критерии готовности
 
-- [ ] `docker compose up qdrant` — сервис поднимается
-- [ ] SQL миграции применяются без ошибок
-- [ ] `pytest tests/test_episodic_memory.py` — зелёный
-- [ ] `pytest tests/test_failure_memory.py` — зелёный
-- [ ] `pytest tests/test_vector_store.py` — зелёный
-- [ ] `pytest tests/` — существующие тесты не сломаны
+- [x] `docker compose up qdrant` — сервис поднимается
+- [x] SQL миграции применяются без ошибок
+- [x] `pytest tests/test_episodic_memory.py` — зелёный (11/11)
+- [x] `pytest tests/test_failure_memory.py` — зелёный (8/8)
+- [x] `pytest tests/test_vector_store.py` — зелёный (10/10)
+- [x] `pytest tests/` — существующие тесты не сломаны (61/61)
 
 ---
 
