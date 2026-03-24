@@ -2,7 +2,9 @@
 
 AI Factory is a Temporal-based multi-agent software delivery system. It takes a project brief, creates a project repository, writes versioned delivery documents, decomposes work into agent tasks, generates code, runs QA, records project state, and keeps artifacts committed into a Git-backed project workspace.
 
-## Current Flow
+## Workflows
+
+### OrchestratorWorkflow (primary delivery pipeline)
 
 ```
 OrchestratorWorkflow
@@ -16,6 +18,18 @@ OrchestratorWorkflow
   → analyst_activity     (final project state, risks, recommendations)
   → pm_activity          (recovery re-planning if tasks blocked, up to PM_MAX_RECOVERY_CYCLES=2)
   → cleanup_stale_branches_activity (delete merged task-* branches)
+```
+
+### LearningWorkflow (AlphaZero-style self-play — Phase 5)
+
+```
+LearningWorkflow  (per task, N iterations)
+  for iteration in range(max_iterations):
+      → dev_activity           (generate candidate(s) with epsilon-greedy strategy)
+      → qa_activity            (validate + compute reward via RewardEngine)
+      → extract_skill_activity (on improvement + QA pass → extract reusable skill)
+      [stop on stagnation or perfect score]
+  → policy_update_activity     (update skill weights, prompt examples, exploration rate)
 ```
 
 The repo still contains Kafka-oriented standalone agents under `agents/dispatcher/`, but the primary working path is the Temporal workflow.
