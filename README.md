@@ -39,13 +39,26 @@ The repo still contains Kafka-oriented standalone agents under `agents/dispatche
 | File | Role |
 |------|------|
 | `main.py` | Local workflow launcher |
-| `orchestrator/workflows.py` | Temporal workflow + subworkflow definitions |
+| `orchestrator/workflows.py` | Temporal workflow definitions (Orchestrator, Project, Learning) |
 | `orchestrator/activities.py` | All activity implementations |
 | `orchestrator/worker.py` | Temporal worker bootstrap |
+| `orchestrator/code_composer.py` | AST-based skill + new code combiner (Phase 3) |
 | `shared/llm.py` | Provider-agnostic LLM adapter with fallback and cooldown |
 | `shared/git.py` | Git repo init, branch, commit, merge, push, GitHub PR helpers |
-| `shared/tools.py` | Local deterministic skills: syntax, lint, typecheck, pytest, file tree |
+| `shared/tools.py` | Deterministic tools: syntax, lint, typecheck, pytest+coverage, junit XML |
 | `shared/prompts/<role>/` | `system.txt` + `user.txt` per agent role |
+| `memory/db.py` | asyncpg PostgreSQL client (MemoryDB) |
+| `memory/episodic.py` | Episode + solution storage and best-solution lookup |
+| `memory/failures.py` | Failure pattern accumulation and prompt formatting |
+| `memory/vector_store.py` | Qdrant-backed vector memory for skill/episode similarity |
+| `memory/reward.py` | RewardEngine: correctness × w_c + perf × w_p − complexity × w_x |
+| `memory/replay_buffer.py` | Fixed-capacity good/bad solution buffer with JSON persistence |
+| `memory/policy_updater.py` | Skill weights, prompt examples, exploration rate adaptation |
+| `memory/skill.py` | Skill dataclass |
+| `memory/skill_extractor.py` | LLM-driven skill extraction → skills/ + PostgreSQL + Qdrant |
+| `memory/skill_retriever.py` | Top-K skill retrieval ranked by similarity × 0.6 + success_rate × 0.4 |
+| `memory/skill_executor.py` | Subprocess sandbox for executing skills |
+| `skills/__init__.py` | SkillRegistry: local registry.json cache |
 | `scripts/debug_*.py` | Isolation test runners for each agent (no Temporal needed) |
 
 ## Agent Roles
