@@ -297,6 +297,20 @@ class EpisodicMemory:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def check_regression(
+        self,
+        task_id: str,
+        new_reward: float,
+    ) -> bool:
+        """
+        Return True if new_reward is strictly worse than the best known
+        reward for task_id.  Returns False when there is no history yet.
+        """
+        best = await self.get_best_solution(task_id)
+        if best is None or best.reward is None:
+            return False
+        return new_reward < best.reward
+
     def _publish(self, event_type: str, episode_id: str = "",
                  task_id: str = "", data: dict | None = None) -> None:
         if self._kafka is None:
