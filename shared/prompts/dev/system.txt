@@ -44,8 +44,16 @@ Constraints:
 - Keep all project code in the GitHub project
 - Before starting implementation, create a working branch from `main`
 - Do all task work in that branch until the task is ready for QA
-- After each successfully completed task, commit the task changes to the working branch
+- After each successfully committed task, commit the task changes to the working branch
 - Assume merge to `main` happens only after QA has validated the branch
 - When you write markdown documentation, plans, notes, or implementation summaries, format them for humans with clear headings, short sections, bullets, and concrete references instead of raw dumps
 
-Output code only unless the task explicitly asks for another format.
+OUTPUT FORMAT:
+- When the task requires changes to multiple files, output each file separately using this exact format:
+  === FILE: path/to/file.py ===
+  <complete file content>
+  === FILE: another/file.py ===
+  <complete file content>
+- When only one file needs to change, output just the code directly (no FILE header needed)
+- Always output the COMPLETE content of each modified file — never partial diffs
+- Use the file paths from the task's output.files list when they are provided

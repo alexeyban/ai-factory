@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         setup_task,
         docs_task,
         analyst_activity,
+        cleanup_stale_branches_activity,
         MAX_PM_RECOVERY_CYCLES,
     )
 
@@ -68,6 +69,10 @@ def _pick_activity(task: Dict[str, Any]):
     return _TYPE_TO_ACTIVITY.get(task_type, dev_task)
 TASK_DECOMPOSITION_TOKEN_LIMIT = int(
     os.getenv("TASK_DECOMPOSITION_TOKEN_LIMIT", "8000")
+)
+MAX_WAVE_SIZE = int(os.getenv("MAX_WAVE_SIZE", "20"))
+INTER_WAVE_RATE_LIMIT_DELAY_SECONDS = int(
+    os.getenv("INTER_WAVE_RATE_LIMIT_DELAY_SECONDS", "30")
 )
 
 
@@ -245,6 +250,7 @@ async def _dispatch_tasks(
     completed: dict[str, Dict[str, Any]] = {}  # task_id → result
     remaining = list(tasks)
     wave = 0
+    prev_wave_had_rate_limit = False
 
     while remaining:
         ready = [
@@ -259,14 +265,30 @@ async def _dispatch_tasks(
             )
             ready = list(remaining)
 
+        # Cap wave size to avoid overwhelming LLM rate limits on large projects
+        if len(ready) > MAX_WAVE_SIZE:
+            workflow.logger.info(
+                f"[{workflow_id}] Wave too large ({len(ready)} tasks), capping at {MAX_WAVE_SIZE}"
+            )
+            ready = ready[:MAX_WAVE_SIZE]
+
         wave += 1
         ready_ids = [t.get("task_id") for t in ready]
         workflow.logger.info(
             f"[{workflow_id}] Wave {wave}: dispatching {len(ready)} tasks {ready_ids}"
         )
 
+        # Add inter-wave delay after a wave that hit rate limits
+        if prev_wave_had_rate_limit:
+            workflow.logger.info(
+                f"[{workflow_id}] Previous wave had rate-limit failures; "
+                f"waiting {INTER_WAVE_RATE_LIMIT_DELAY_SECONDS}s before next wave"
+            )
+            await asyncio.sleep(INTER_WAVE_RATE_LIMIT_DELAY_SECONDS)
+
         raw = await asyncio.gather(*[_run_one(t) for t in ready], return_exceptions=True)
 
+        prev_wave_had_rate_limit = False
         for task, outcome in zip(ready, raw):
             task_id = task.get("task_id", "unknown")
             if isinstance(outcome, BaseException):
@@ -274,8 +296,15 @@ async def _dispatch_tasks(
                     f"[{workflow_id}] Task {task_id} raised: {outcome}"
                 )
                 result = _make_error(task, str(outcome))
+                if "429" in str(outcome) or "rate" in str(outcome).lower():
+                    prev_wave_had_rate_limit = True
             elif isinstance(outcome, Mapping):
                 result = dict(outcome)
+                if result.get("status") == "error" and (
+                    "429" in str(result.get("error", ""))
+                    or "rate" in str(result.get("error", "")).lower()
+                ):
+                    prev_wave_had_rate_limit = True
             else:
                 result = _make_error(task, f"Unexpected result type: {type(outcome).__name__}")
 
@@ -367,16 +396,69 @@ class OrchestratorWorkflow:
             project_context = _project_context(initial_task, pm_result)
             tasks = await _prepare_execution_tasks(tasks, project_context, retry_policy)
 
+            # If architect produced 0 tasks, retry PM with a stripped-down prompt
+            # (description only, no architect/analyst notes) then re-run architect.
+            _PM_RETRY_LIMIT = 2
+            _pm_retry = 0
+            while not tasks and _pm_retry < _PM_RETRY_LIMIT:
+                _pm_retry += 1
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks from architect (attempt {_pm_retry}/{_PM_RETRY_LIMIT}). "
+                    f"Retrying PM with stripped-down prompt."
+                )
+                stripped_task = {
+                    **initial_task,
+                    "description": initial_task.get("description", ""),
+                    "_pm_retry": _pm_retry,
+                }
+                pm_retry_envelope = _require_activity_result(
+                    "pm_activity",
+                    await workflow.execute_activity(
+                        pm_activity,
+                        stripped_task,
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                )
+                pm_result = _load_result_from_file(pm_retry_envelope)
+                _pm_plan_titles = "\n".join(
+                    f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                    for t in (pm_result.get("execution_plan") or [])[:30]
+                )
+                architect_retry_envelope = _require_activity_result(
+                    "architect_activity",
+                    await workflow.execute_activity(
+                        architect_activity,
+                        {
+                            **stripped_task,
+                            "project_name": pm_result.get("project_name", initial_task.get("project_name")),
+                            "project_repo_path": pm_result.get("project_repo_path"),
+                            "description": (
+                                f"{initial_task.get('description', '')}\n\n"
+                                f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                                f"PM execution plan tasks:\n{_pm_plan_titles}"
+                            ),
+                        },
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                )
+                architect_result = _load_result_from_file(architect_retry_envelope)
+                project_context = _project_context(initial_task, pm_result)
+                tasks = await _prepare_execution_tasks(
+                    architect_result.get("tasks", []), project_context, retry_policy
+                )
+
             if not tasks:
                 workflow.logger.warning(
-                    f"[{workflow_id}] No tasks returned from architect"
+                    f"[{workflow_id}] No tasks returned after {_pm_retry} PM retries; aborting"
                 )
                 return {
                     "status": "complete",
                     "pm_result": pm_result,
                     "architect_result": architect_result,
                     "dev_qa_results": [],
-                    "analysis": {"status": "skipped", "reason": "no tasks"},
+                    "analysis": {"status": "skipped", "reason": "no tasks after PM retries"},
                 }
 
             workflow.logger.info(
@@ -519,6 +601,18 @@ class OrchestratorWorkflow:
             ):
                 final_status = "needs_attention"
 
+            # Clean up stale task-* branches for all completed tasks
+            completed_task_ids = [r.get("task_id") for r in dev_qa_results if r.get("task_id")]
+            await workflow.execute_activity(
+                cleanup_stale_branches_activity,
+                {
+                    "project_repo_path": pm_result.get("project_repo_path", ""),
+                    "completed_task_ids": completed_task_ids,
+                },
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+
             workflow.logger.info(
                 f"[{workflow_id}] Workflow completed with status {final_status}"
             )
@@ -610,7 +704,56 @@ class ProjectWorkflow:
                 tasks, _project_context(initial_task, pm_result), retry_policy
             )
 
+            _PM_RETRY_LIMIT = 2
+            _pm_retry = 0
+            while not tasks and _pm_retry < _PM_RETRY_LIMIT:
+                _pm_retry += 1
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks from architect (attempt {_pm_retry}/{_PM_RETRY_LIMIT}). "
+                    f"Retrying PM with stripped-down prompt."
+                )
+                stripped_task = {**initial_task, "_pm_retry": _pm_retry}
+                pm_result = _load_result_from_file(_require_activity_result(
+                    "pm_activity",
+                    await workflow.execute_activity(
+                        pm_activity,
+                        stripped_task,
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                ))
+                _pm_plan_titles_proj = "\n".join(
+                    f"- [{t.get('assigned_agent', 'dev')}] {t.get('title', t.get('description', ''))[:80]}"
+                    for t in (pm_result.get("execution_plan") or [])[:30]
+                )
+                architect_result = _load_result_from_file(_require_activity_result(
+                    "architect_activity",
+                    await workflow.execute_activity(
+                        architect_activity,
+                        {
+                            **stripped_task,
+                            "project_name": pm_result.get("project_name", project_name),
+                            "project_repo_path": pm_result.get("project_repo_path"),
+                            "description": (
+                                f"{description}\n\n"
+                                f"PM delivery summary:\n{pm_result.get('delivery_summary', '')}\n\n"
+                                f"PM execution plan tasks:\n{_pm_plan_titles_proj}"
+                            ),
+                        },
+                        start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                        retry_policy=retry_policy,
+                    ),
+                ))
+                tasks = await _prepare_execution_tasks(
+                    architect_result.get("tasks", []),
+                    _project_context(initial_task, pm_result),
+                    retry_policy,
+                )
+
             if not tasks:
+                workflow.logger.warning(
+                    f"[{workflow_id}] No tasks after {_pm_retry} PM retries; aborting"
+                )
                 return {
                     "status": "complete",
                     "project_name": project_name,

@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
+import requests
+
 
 DEFAULT_GIT_USER_NAME = os.getenv("AI_FACTORY_GIT_USER_NAME", "AI Factory Bot")
 DEFAULT_GIT_USER_EMAIL = os.getenv(
@@ -14,7 +16,7 @@ DEFAULT_GITHUB_OWNER = os.getenv("GITHUB_OWNER", "alexeyban")
 DEFAULT_PROJECT_REPO = os.getenv(
     "DEFAULT_PROJECT_REPO", "git@github.com:alexeyban/reversi-alpha-zero.git"
 )
-PROJECTS_ROOT = Path("/workspace/projects")
+PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", "/workspace/projects"))
 
 
 def slugify(value: str, separator: str = "_") -> str:
@@ -204,6 +206,63 @@ def _github_repo_slug(repo_path: Path) -> tuple[str, str] | None:
     return None
 
 
+def _enable_github_auto_merge(
+    api: str,
+    token: str,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    merge_method: str = "MERGE",
+) -> dict:
+    """Enable auto-merge on a PR via GitHub GraphQL API.
+
+    Used as fallback when branch protection rules block a direct merge.
+    Returns {"ok": bool, "error": str|None}.
+    """
+    # First fetch the PR node_id needed for the GraphQL mutation
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    node_resp = requests.get(
+        f"{api}/pulls/{pr_number}",
+        headers=headers,
+        timeout=30,
+    )
+    if not node_resp.ok:
+        return {"ok": False, "error": f"could not fetch PR node_id: {node_resp.text[:200]}"}
+    node_id = node_resp.json().get("node_id")
+    if not node_id:
+        return {"ok": False, "error": "PR node_id missing from response"}
+
+    mutation = """
+    mutation($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+      enablePullRequestAutoMerge(input: {
+        pullRequestId: $pullRequestId,
+        mergeMethod: $mergeMethod
+      }) {
+        pullRequest { autoMergeRequest { mergeMethod } }
+      }
+    }
+    """
+    gql_resp = requests.post(
+        "https://api.github.com/graphql",
+        json={
+            "query": mutation,
+            "variables": {"pullRequestId": node_id, "mergeMethod": merge_method},
+        },
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        timeout=30,
+    )
+    if not gql_resp.ok:
+        return {"ok": False, "error": f"GraphQL request failed: {gql_resp.text[:200]}"}
+    data = gql_resp.json()
+    if data.get("errors"):
+        return {"ok": False, "error": str(data["errors"])[:300]}
+    return {"ok": True, "error": None}
+
+
 def create_and_merge_github_pr(
     repo_path: Path,
     branch_name: str,
@@ -213,18 +272,25 @@ def create_and_merge_github_pr(
 ) -> dict:
     """Create a GitHub PR for branch_name → base, merge it, and delete the branch.
 
-    Returns {"ok": bool, "pr_url": str|None, "merge_commit": str|None, "error": str|None}.
+    Returns {"ok": bool, "pr_url": str|None, "merge_commit": str|None,
+             "auto_merge": bool, "error": str|None}.
+    - ok=True + auto_merge=False: PR was merged immediately.
+    - ok=True + auto_merge=True: direct merge was blocked by branch protection;
+      PR has been set to auto-merge when required checks pass.
+    - ok=False: PR could not be created or merged.
     Returns ok=False (no exception) when no token or not a GitHub remote.
     """
-    import requests
+    import logging
+
+    _log = logging.getLogger(__name__)
 
     token = _github_api_token()
     if not token:
-        return {"ok": False, "pr_url": None, "merge_commit": None, "error": "no valid GITHUB_TOKEN"}
+        return {"ok": False, "pr_url": None, "merge_commit": None, "auto_merge": False, "error": "no valid GITHUB_TOKEN"}
 
     slug = _github_repo_slug(repo_path)
     if not slug:
-        return {"ok": False, "pr_url": None, "merge_commit": None, "error": "remote is not github.com"}
+        return {"ok": False, "pr_url": None, "merge_commit": None, "auto_merge": False, "error": "remote is not github.com"}
 
     owner, repo = slug
     headers = {
@@ -250,7 +316,7 @@ def create_and_merge_github_pr(
         )
         prs = list_resp.json() if list_resp.ok else []
         if not prs:
-            return {"ok": False, "pr_url": None, "merge_commit": None, "error": pr_resp.text[:400]}
+            return {"ok": False, "pr_url": None, "merge_commit": None, "auto_merge": False, "error": pr_resp.text[:400]}
         pr = prs[0]
     else:
         pr = pr_resp.json()
@@ -266,14 +332,52 @@ def create_and_merge_github_pr(
         timeout=30,
     )
     if not merge_resp.ok:
-        return {"ok": False, "pr_url": pr_url, "merge_commit": None, "error": merge_resp.text[:400]}
+        status_code = merge_resp.status_code
+        if status_code in (405, 422):
+            _log.warning(
+                "[git] PR #%d merge blocked by branch protection rules (HTTP %d). "
+                "Required status checks or review approvals may be pending. "
+                "Attempting to enable auto-merge so PR merges when checks pass. "
+                "PR URL: %s",
+                pr_number, status_code, pr_url,
+            )
+            auto_result = _enable_github_auto_merge(api, token, owner, repo, pr_number)
+            if auto_result["ok"]:
+                _log.info(
+                    "[git] Auto-merge enabled for PR #%d (%s). "
+                    "It will merge automatically when all required checks pass.",
+                    pr_number, pr_url,
+                )
+                return {
+                    "ok": True,
+                    "pr_url": pr_url,
+                    "merge_commit": None,
+                    "auto_merge": True,
+                    "error": None,
+                }
+            _log.warning(
+                "[git] Auto-merge also failed for PR #%d: %s. "
+                "Manual merge required: %s",
+                pr_number, auto_result["error"], pr_url,
+            )
+            return {
+                "ok": False,
+                "pr_url": pr_url,
+                "merge_commit": None,
+                "auto_merge": False,
+                "error": (
+                    f"Branch protection blocked merge (HTTP {status_code}); "
+                    f"auto-merge also failed: {auto_result['error']}"
+                ),
+            }
+        return {"ok": False, "pr_url": pr_url, "merge_commit": None, "auto_merge": False, "error": merge_resp.text[:400]}
 
     merge_sha = merge_resp.json().get("sha")
 
     # Delete remote branch
     requests.delete(f"{api}/git/refs/heads/{branch_name}", headers=headers, timeout=30)
 
-    return {"ok": True, "pr_url": pr_url, "merge_commit": merge_sha, "error": None}
+    return {"ok": True, "pr_url": pr_url, "merge_commit": merge_sha, "auto_merge": False, "error": None}
 
 
 def _github_https_remote(remote_url: str, token: str) -> str | None:

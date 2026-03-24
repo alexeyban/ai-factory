@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -14,6 +15,8 @@ from temporalio.common import RetryPolicy
 
 from agents.decomposer.agent import DecomposerAgent, normalize_task_contract
 from shared.git import (
+    _github_api_token,
+    _github_repo_slug,
     bootstrap_from_remote,
     branch_exists,
     commit_all,
@@ -64,8 +67,8 @@ DECOMPOSER_AGENT = DecomposerAgent()
 MAX_SELF_HEALING_ATTEMPTS = int(os.getenv("DEV_QA_MAX_FIX_ATTEMPTS", "2"))
 MAX_PM_RECOVERY_CYCLES = int(os.getenv("PM_MAX_RECOVERY_CYCLES", "2"))
 MAX_TASK_EXECUTION_SECONDS = int(os.getenv("MAX_TASK_EXECUTION_SECONDS", "1800"))
-WORKSPACE_ROOT = Path("/workspace")
-PROJECTS_ROOT = WORKSPACE_ROOT / "projects"
+WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT", "/workspace"))
+PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", str(WORKSPACE_ROOT / "projects")))
 AGENT_PLAN_PROMPTS = {
     "pm": PM_SYSTEM_PROMPT,
     "architect": ARCHITECT_SYSTEM_PROMPT,
@@ -115,7 +118,8 @@ def _wrap_activity_result(
     if start_time:
         duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
-    output_dir = Path("/workspace/.ai_factory/contexts") / workflow_id
+    _ai_factory_root = Path(os.getenv("AI_FACTORY_ROOT", "/workspace/.ai_factory"))
+    output_dir = _ai_factory_root / "contexts" / workflow_id
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"output_{stage}.json"
 
@@ -324,7 +328,7 @@ def _project_python(repo_path: Path) -> Path:
 def _ensure_project_python_env(repo_path: Path) -> Path:
     python_path = _project_python(repo_path)
     if not python_path.exists():
-        subprocess.run(["python", "-m", "venv", str(repo_path / ".venv")], check=True)
+        subprocess.run([sys.executable, "-m", "venv", str(repo_path / ".venv")], check=True)
     subprocess.run(
         [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
         check=True,
@@ -431,12 +435,46 @@ def _task_branch(task: Dict[str, Any]) -> str:
 
 
 def _task_module_path(task: Dict[str, Any], repo_path: Path) -> Path:
+    """Return the primary output file path for this task.
+
+    Priority:
+    1. output.files[0] from the task contract (most accurate)
+    2. Module: <file.py> pattern in description (legacy)
+    3. Fallback: {package}/{task_slug}.py
+    """
+    output_files = task.get("output", {}).get("files", [])
+    if output_files:
+        candidate = str(output_files[0]).strip()
+        if candidate:
+            return repo_path / candidate
     description = task.get("description", "")
     module_match = re.search(r"Module:\s*([A-Za-z0-9_./-]+\.py)", description)
     if module_match:
         return repo_path / module_match.group(1)
     package_name = _project_package_name(task)
     return repo_path / package_name / f"{_task_slug(task)}.py"
+
+
+def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
+    """Parse LLM output that may contain multiple files using === FILE: path === headers.
+
+    Returns list of (relative_path, content) tuples.
+    If no FILE headers are found, returns an empty list (caller uses single-file path).
+    """
+    pattern = re.compile(r"^=== FILE: (.+?) ===\s*$", re.MULTILINE)
+    matches = list(pattern.finditer(code))
+    if not matches:
+        return []
+    files = []
+    for i, match in enumerate(matches):
+        path = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(code)
+        content = code[start:end].strip("\n")
+        # Strip trailing code fence if present
+        content = re.sub(r"```\s*$", "", content).strip()
+        files.append((path, content))
+    return files
 
 
 def _write_markdown(path: Path, title: str, body: str) -> None:
@@ -900,10 +938,17 @@ def _build_dev_prompt(
         except Exception:
             pass  # never crash the dev loop
 
+    output_files = task.get("output", {}).get("files", [])
+    if output_files:
+        target_files_text = "\n".join(f"  - {f}" for f in output_files)
+    else:
+        target_files_text = "  (not specified — infer from task description)"
+
     return render_prompt(
         DEV_USER_PROMPT,
         task_description=description,
         task_context=json.dumps(task, indent=2, ensure_ascii=True),
+        target_files=target_files_text,
         attempt_number=attempt_number,
         qa_feedback=qa_feedback_text,
         error_history=error_history_text,
@@ -948,17 +993,28 @@ def _generate_dev_artifact(
         ),
     )
 
-    code = _strip_code_fences(
-        call_llm(
-            DEV_SYSTEM_PROMPT,
-            _build_dev_prompt(task, description, attempt_number, qa_feedback),
-        )
+    raw_output = call_llm(
+        DEV_SYSTEM_PROMPT,
+        _build_dev_prompt(task, description, attempt_number, qa_feedback),
     )
 
-    file_path = _task_module_path(task, repo_path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(code)
-    LOGGER.info("[dev] Code written to %s (%d bytes)", file_path, len(code))
+    multi = _parse_multi_file_output(raw_output)
+    if multi:
+        written_paths = []
+        for rel_path, content in multi:
+            fp = repo_path / rel_path
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text(content)
+            LOGGER.info("[dev] Code written to %s (%d bytes)", fp, len(content))
+            written_paths.append(fp)
+        file_path = written_paths[0]
+        code = multi[0][1]
+    else:
+        code = _strip_code_fences(raw_output)
+        file_path = _task_module_path(task, repo_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(code)
+        LOGGER.info("[dev] Code written to %s (%d bytes)", file_path, len(code))
 
     docs_dir = repo_path / "documents" / "pm"
     task_doc = _next_version_path(
@@ -1249,6 +1305,7 @@ def _normalize_task(
 
     normalized = normalize_task_contract(task, project_context=context)
     normalized.setdefault("task_id", str(uuid.uuid4()))
+    normalized.setdefault("assigned_agent", "dev")
     normalized["project_name"] = context.get("project_name", "project")
     normalized["project_repo_path"] = context.get("project_repo_path", "")
     # Store a short description reference rather than the full 40k+ project description
@@ -2121,6 +2178,101 @@ async def setup_task(task: Dict[str, Any]) -> Dict[str, Any]:
 async def docs_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Documentation tasks dispatched to the dev agent."""
     return await _execute_task_impl(task)
+
+
+@activity.defn
+async def cleanup_stale_branches_activity(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete remote task-* branches whose tasks completed (success or error).
+
+    Called at the end of OrchestratorWorkflow after all tasks are processed.
+    Uses the GitHub REST API when GITHUB_TOKEN is available; falls back to
+    local `git push origin --delete` for non-GitHub remotes.
+
+    payload keys:
+      project_repo_path  – local path to the generated project repo
+      completed_task_ids – list of task IDs that finished (any status)
+    """
+    import requests as _requests  # local import keeps activities.py from requiring requests at import time
+
+    repo_path_str = payload.get("project_repo_path", "")
+    completed_ids: list[str] = list(payload.get("completed_task_ids", []))
+    if not repo_path_str:
+        return {"ok": False, "deleted": [], "error": "no project_repo_path"}
+
+    repo_path = Path(repo_path_str)
+    if not repo_path.exists():
+        return {"ok": False, "deleted": [], "error": f"repo_path not found: {repo_path_str}"}
+
+    # Build set of task-branch names that belong to completed tasks
+    completed_branches = {f"task-{tid}" for tid in completed_ids}
+
+    deleted: list[str] = []
+    errors: list[str] = []
+
+    # List all remote branches via git ls-remote
+    ls_result = run_git(repo_path, ["ls-remote", "--heads", "origin"], check=False)
+    if ls_result.returncode != 0:
+        return {"ok": False, "deleted": [], "error": f"ls-remote failed: {ls_result.stderr[:200]}"}
+
+    remote_task_branches: list[str] = []
+    for line in ls_result.stdout.splitlines():
+        # format: "<sha>\trefs/heads/<branch>"
+        parts = line.strip().split("\t")
+        if len(parts) == 2 and parts[1].startswith("refs/heads/task-"):
+            remote_task_branches.append(parts[1].removeprefix("refs/heads/"))
+
+    if not remote_task_branches:
+        LOGGER.info("[cleanup] No task-* branches found on remote")
+        return {"ok": True, "deleted": [], "error": None}
+
+    # Try GitHub API first for a clean delete
+    token = _github_api_token()
+    slug = _github_repo_slug(repo_path)
+
+    for branch in remote_task_branches:
+        if branch not in completed_branches:
+            LOGGER.info("[cleanup] Skipping branch %s (task not in completed set)", branch)
+            continue
+
+        if token and slug:
+            owner, repo = slug
+            del_resp = _requests.delete(
+                f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=15,
+            )
+            if del_resp.status_code in (204, 422):  # 422 = already gone
+                LOGGER.info("[cleanup] Deleted remote branch %s via GitHub API", branch)
+                deleted.append(branch)
+            else:
+                LOGGER.warning(
+                    "[cleanup] GitHub API delete failed for %s (HTTP %d): %s",
+                    branch, del_resp.status_code, del_resp.text[:100],
+                )
+                errors.append(f"{branch}: HTTP {del_resp.status_code}")
+        else:
+            # Fall back to git push --delete
+            del_result = run_git(
+                repo_path, ["push", "origin", "--delete", branch], check=False
+            )
+            if del_result.returncode == 0:
+                LOGGER.info("[cleanup] Deleted remote branch %s via git push", branch)
+                deleted.append(branch)
+            else:
+                LOGGER.warning(
+                    "[cleanup] git push --delete failed for %s: %s",
+                    branch, del_result.stderr[:100],
+                )
+                errors.append(f"{branch}: {del_result.stderr[:100]}")
+
+    LOGGER.info(
+        "[cleanup] Branch cleanup done: %d deleted, %d errors", len(deleted), len(errors)
+    )
+    return {"ok": len(errors) == 0, "deleted": deleted, "error": "; ".join(errors) or None}
 
 
 @activity.defn

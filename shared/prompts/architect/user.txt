@@ -15,6 +15,7 @@ Standard task schema:
   "title": "Short descriptive title",
   "description": "Complete, implementation-ready specification",
   "type": "feature|bugfix|refactor|setup|test",
+  "assigned_agent": "dev|qa|architect|pm",
   "dependencies": ["dependency-task-id-1"],
   "input": {{"files": [], "context": "required input context"}},
   "output": {{"files": [], "artifacts": [], "expected_result": "expected outcome"}},

@@ -4,6 +4,9 @@ Task:
 Context:
 {task_context}
 
+Target files (write these files — use output.files from the task contract above):
+{target_files}
+
 Attempt:
 {attempt_number}
 
@@ -16,9 +19,11 @@ QA feedback:
 
 Implementation rules:
 - Treat the task input/output/verification fields as the delivery contract
-- Implement one focused change per task
+- Write the COMPLETE content of every target file listed above
+- If multiple target files are listed, use the === FILE: path === header format (one header per file)
+- If only one target file is listed, output just the complete file content with no header
 - Keep code and files small, testable, and self-contained
 - If verification.method is pytest, add or update the requested tests
 - Preserve working behavior unless QA feedback requires a change
 
-Deliver the requested code artifact and make it align with the acceptance criteria.
+Deliver the complete content of each target file so it meets the acceptance criteria.
