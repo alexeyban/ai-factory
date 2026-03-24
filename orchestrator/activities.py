@@ -2039,32 +2039,52 @@ async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     task = _load_activity_input(task)
     workflow_id = task.get("_workflow_id", "unknown")
     task_id = task.get("task_id", str(uuid.uuid4()))
-    artifact = task.get("artifact", "")
     attempt = int(task.get("attempt_number", 1))
 
+    # Multi-candidate support (Phase 3): if 'candidates' is present, try each
+    # in order and return the first that passes, or the last result if all fail.
+    # Backward-compatible: falls back to single 'artifact' path when no candidates.
+    candidates: List[Dict[str, Any]] = task.get("candidates", [])
+    if not candidates:
+        single_artifact = task.get("artifact", "")
+        if single_artifact:
+            candidates = [{"artifact": single_artifact}]
+
+    if not candidates:
+        candidates = [{"artifact": ""}]
+
     LOGGER.info(
-        "[qa] Starting | workflow=%s | task_id=%s | artifact=%s | attempt=%d",
-        workflow_id,
-        task_id,
-        artifact[:50] if artifact else "none",
-        attempt,
+        "[qa] Starting | workflow=%s | task_id=%s | candidates=%d | attempt=%d",
+        workflow_id, task_id, len(candidates), attempt,
     )
 
-    result = _run_qa_for_artifact(
-        task,
-        task_id,
-        task.get("description", ""),
-        artifact,
-        attempt,
-    )
+    result = None
+    for idx, candidate in enumerate(candidates):
+        artifact = candidate.get("artifact", "")
+        LOGGER.info(
+            "[qa] Trying candidate %d/%d | artifact=%s",
+            idx + 1, len(candidates), artifact[:60] if artifact else "none",
+        )
+        candidate_result = _run_qa_for_artifact(
+            task,
+            task_id,
+            task.get("description", ""),
+            artifact,
+            attempt,
+        )
+        candidate_result["candidate_idx"] = idx
+        candidate_result["candidate_strategy"] = candidate.get("strategy", "explore")
+        if result is None:
+            result = candidate_result
+        if candidate_result.get("status") == "success":
+            result = candidate_result
+            LOGGER.info("[qa] Candidate %d passed — using as best result", idx + 1)
+            break
 
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     LOGGER.info(
         "[qa] Completed | workflow=%s | task_id=%s | duration=%dms | status=%s",
-        workflow_id,
-        task_id,
-        duration_ms,
-        result.get("status", "unknown"),
+        workflow_id, task_id, duration_ms, result.get("status", "unknown"),
     )
 
     return _wrap_activity_result(workflow_id, f"qa_{task_id}", result, start_time)
