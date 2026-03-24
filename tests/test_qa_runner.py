@@ -144,12 +144,12 @@ def test_metrics_time_measured():
 async def test_publishes_to_kafka_qa_results():
     producer = MagicMock()
     result = {"status": "success", "reward": 0.9, "qa_metrics": {}}
-    with patch("orchestrator.activities.MemoryDB") as MockDB:
+    with patch("memory.db.MemoryDB") as MockDB:
         mock_db_inst = AsyncMock()
         mock_db_inst.connect = AsyncMock()
         mock_db_inst.close = AsyncMock()
         MockDB.return_value = mock_db_inst
-        with patch("orchestrator.activities.EpisodicMemory") as MockMem:
+        with patch("memory.episodic.EpisodicMemory") as MockMem:
             mock_mem = AsyncMock()
             mock_mem.check_regression = AsyncMock(return_value=False)
             MockMem.return_value = mock_mem
