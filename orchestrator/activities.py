@@ -1230,7 +1230,7 @@ def _run_qa_for_artifact(
             )
             status = "success" if pytest_result.ok else "fail"
 
-        summary = _summarize_qa_result(description, qa_logs, status)
+        summary = _summarize_qa_result(description, qa_logs, status, attempt_number=attempt_number)
 
     qa_dir = repo_path / "documents" / "qa"
     qa_md_path = _next_version_path(qa_dir, f"qa_report_{_task_slug(task)}", ".md")
