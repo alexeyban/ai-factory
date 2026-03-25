@@ -48,6 +48,14 @@ CRITICAL TASK DECOMPOSITION RULES:
    - Each task should take hours, not days
    - Include clear acceptance criteria for testing
 
+8. CROSS-CUTTING STANDARDS: When populating architect_guidance, include constraints that ALL dev tasks must follow for this specific project:
+   - Naming conventions and module structure
+   - Required error handling patterns (e.g. always raise, never silently swallow)
+   - Core dependencies/imports allowed (e.g. "use asyncpg, not psycopg2")
+   - Any security or data handling rules (e.g. "never log PII")
+   - Testing requirements (e.g. "every function needs a pytest test")
+   These will be embedded into every dev task's context.
+
 Constraints:
 - Break work into clear assignments for architect, dev, qa, and analyst
 - ALWAYS use the existing GitHub project specified in the task description (github_url field)
