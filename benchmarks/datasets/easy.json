@@ -1,0 +1,228 @@
+{
+  "dataset_version": "1.0",
+  "difficulty": "easy",
+  "tasks": [
+    {
+      "task_id": "bench_easy_001",
+      "title": "Reverse a string",
+      "description": "Write a Python function `reverse_string(s: str) -> str` that returns the input string reversed.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert reverse_string('hello') == 'olleh'",
+        "assert reverse_string('') == ''",
+        "assert reverse_string('a') == 'a'"
+      ],
+      "hidden_tests": [
+        "assert reverse_string('racecar') == 'racecar'",
+        "assert reverse_string('Python') == 'nohtyP'"
+      ],
+      "expected_output": {
+        "function_name": "reverse_string",
+        "signature": "def reverse_string(s: str) -> str"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_002",
+      "title": "Sum of list",
+      "description": "Write a Python function `sum_list(nums: list[int]) -> int` that returns the sum of all integers in the list. Do not use the built-in `sum()`.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert sum_list([1, 2, 3]) == 6",
+        "assert sum_list([]) == 0",
+        "assert sum_list([-1, 1]) == 0"
+      ],
+      "hidden_tests": [
+        "assert sum_list([100, 200, 300]) == 600",
+        "assert sum_list([0]) == 0"
+      ],
+      "expected_output": {
+        "function_name": "sum_list",
+        "signature": "def sum_list(nums: list[int]) -> int"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_003",
+      "title": "Check palindrome",
+      "description": "Write a Python function `is_palindrome(s: str) -> bool` that returns True if the string is a palindrome (reads the same forwards and backwards), ignoring case.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert is_palindrome('racecar') == True",
+        "assert is_palindrome('hello') == False",
+        "assert is_palindrome('') == True",
+        "assert is_palindrome('Aba') == True"
+      ],
+      "hidden_tests": [
+        "assert is_palindrome('Madam') == True",
+        "assert is_palindrome('level') == True",
+        "assert is_palindrome('Python') == False"
+      ],
+      "expected_output": {
+        "function_name": "is_palindrome",
+        "signature": "def is_palindrome(s: str) -> bool"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_004",
+      "title": "FizzBuzz",
+      "description": "Write a Python function `fizzbuzz(n: int) -> list[str]` that returns a list of strings from 1 to n where multiples of 3 are 'Fizz', multiples of 5 are 'Buzz', and multiples of both are 'FizzBuzz'.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert fizzbuzz(5) == ['1', '2', 'Fizz', '4', 'Buzz']",
+        "assert fizzbuzz(15)[14] == 'FizzBuzz'",
+        "assert fizzbuzz(1) == ['1']"
+      ],
+      "hidden_tests": [
+        "assert fizzbuzz(3) == ['1', '2', 'Fizz']",
+        "assert len(fizzbuzz(10)) == 10"
+      ],
+      "expected_output": {
+        "function_name": "fizzbuzz",
+        "signature": "def fizzbuzz(n: int) -> list[str]"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_005",
+      "title": "Count vowels",
+      "description": "Write a Python function `count_vowels(s: str) -> int` that counts the number of vowels (a, e, i, o, u) in a string, case-insensitive.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert count_vowels('hello') == 2",
+        "assert count_vowels('') == 0",
+        "assert count_vowels('AEIOU') == 5"
+      ],
+      "hidden_tests": [
+        "assert count_vowels('Python') == 1",
+        "assert count_vowels('rhythm') == 0"
+      ],
+      "expected_output": {
+        "function_name": "count_vowels",
+        "signature": "def count_vowels(s: str) -> int"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_006",
+      "title": "Find maximum in list",
+      "description": "Write a Python function `find_max(nums: list[int]) -> int` that returns the maximum value in a non-empty list. Do not use the built-in `max()`.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert find_max([3, 1, 4, 1, 5, 9]) == 9",
+        "assert find_max([1]) == 1",
+        "assert find_max([-5, -1, -3]) == -1"
+      ],
+      "hidden_tests": [
+        "assert find_max([0, 0, 0]) == 0",
+        "assert find_max([100, 99, 98]) == 100"
+      ],
+      "expected_output": {
+        "function_name": "find_max",
+        "signature": "def find_max(nums: list[int]) -> int"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_007",
+      "title": "Remove duplicates",
+      "description": "Write a Python function `remove_duplicates(lst: list) -> list` that returns a new list with duplicate elements removed, preserving the original order.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert remove_duplicates([1, 2, 2, 3, 1]) == [1, 2, 3]",
+        "assert remove_duplicates([]) == []",
+        "assert remove_duplicates([1]) == [1]"
+      ],
+      "hidden_tests": [
+        "assert remove_duplicates([3, 3, 3]) == [3]",
+        "assert remove_duplicates([1, 2, 3]) == [1, 2, 3]"
+      ],
+      "expected_output": {
+        "function_name": "remove_duplicates",
+        "signature": "def remove_duplicates(lst: list) -> list"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_008",
+      "title": "Fibonacci sequence",
+      "description": "Write a Python function `fibonacci(n: int) -> list[int]` that returns the first n Fibonacci numbers. fibonacci(0) returns [], fibonacci(1) returns [0].",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert fibonacci(0) == []",
+        "assert fibonacci(1) == [0]",
+        "assert fibonacci(6) == [0, 1, 1, 2, 3, 5]"
+      ],
+      "hidden_tests": [
+        "assert fibonacci(2) == [0, 1]",
+        "assert len(fibonacci(10)) == 10"
+      ],
+      "expected_output": {
+        "function_name": "fibonacci",
+        "signature": "def fibonacci(n: int) -> list[int]"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_009",
+      "title": "Word frequency counter",
+      "description": "Write a Python function `word_frequency(text: str) -> dict[str, int]` that counts how many times each word appears in the text (case-insensitive, split on whitespace).",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert word_frequency('hello world hello') == {'hello': 2, 'world': 1}",
+        "assert word_frequency('') == {}",
+        "assert word_frequency('Hello hello') == {'hello': 2}"
+      ],
+      "hidden_tests": [
+        "assert word_frequency('a b c a') == {'a': 2, 'b': 1, 'c': 1}",
+        "assert word_frequency('one') == {'one': 1}"
+      ],
+      "expected_output": {
+        "function_name": "word_frequency",
+        "signature": "def word_frequency(text: str) -> dict[str, int]"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_easy_010",
+      "title": "Caesar cipher",
+      "description": "Write a Python function `caesar_cipher(text: str, shift: int) -> str` that encodes the text using a Caesar cipher with the given shift. Only shift letters; preserve case and leave non-letter characters unchanged.",
+      "difficulty": "easy",
+      "type": "dev",
+      "tests": [
+        "assert caesar_cipher('abc', 1) == 'bcd'",
+        "assert caesar_cipher('xyz', 1) == 'yza'",
+        "assert caesar_cipher('Hello, World!', 13) == 'Uryyb, Jbeyq!'"
+      ],
+      "hidden_tests": [
+        "assert caesar_cipher('', 5) == ''",
+        "assert caesar_cipher('ABC', 26) == 'ABC'"
+      ],
+      "expected_output": {
+        "function_name": "caesar_cipher",
+        "signature": "def caesar_cipher(text: str, shift: int) -> str"
+      },
+      "time_limit_ms": 100,
+      "memory_limit_mb": 50
+    }
+  ]
+}
