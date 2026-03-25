@@ -293,7 +293,7 @@ class SkillOptimizer:
             id=new_id,
             name=merged_data.get("name", "merged_skill"),
             description=merged_data.get("description", ""),
-            code_path=str(new_path.relative_to(Path("."))),
+            code_path=str(new_path),
             tags=list(merged_data.get("tags", [])),
             success_rate=sum(s.success_rate for s in skills) / len(skills),
             use_count=sum(s.use_count for s in skills),
