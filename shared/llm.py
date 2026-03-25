@@ -171,7 +171,7 @@ def _default_api_key(provider: str) -> Optional[str]:
 def _default_model_for_provider(provider: str) -> str:
     defaults = {
         "openai": os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-        "opencode": os.getenv("OPENCODE_MODEL", "opencode/bigpickle"),
+        "opencode": os.getenv("OPENCODE_MODEL", "glm-5"),
         "openrouter": os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
         "deepseek": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
