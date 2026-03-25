@@ -141,6 +141,12 @@ async def run_e2e(task_suite: list[dict]) -> dict:
 
         print()
 
+        # Brief pause between tasks in sequential mode to let provider cooldowns reset
+        if sequential and suite is not task_suite[-1]:
+            pause = 30
+            print(f"  (waiting {pause}s before next task to ease rate limits...)\n")
+            await asyncio.sleep(pause)
+
     return {"results": results}
 
 
