@@ -2340,11 +2340,24 @@ async def analyst_activity(input_data: Any) -> Dict[str, Any]:
         workflow_id,
         len(tasks_summary),
     )
+    project_goal = input_data.get("project_goal", "") if isinstance(input_data, dict) else ""
+    delivery_summary = input_data.get("delivery_summary", "") if isinstance(input_data, dict) else ""
+    analyst_guidance = input_data.get("analyst_guidance", []) if isinstance(input_data, dict) else []
+
+    current_state_parts = []
+    if project_goal:
+        current_state_parts.append(f"Project goal: {project_goal}")
+    if delivery_summary:
+        current_state_parts.append(f"PM delivery summary: {delivery_summary}")
+    if analyst_guidance:
+        current_state_parts.append("PM analyst guidance:\n" + "\n".join(f"- {g}" for g in analyst_guidance[:4]))
+    current_state = "\n\n".join(current_state_parts)
+
     new_state = call_llm(
         ANALYST_SYSTEM_PROMPT,
         render_prompt(
             ANALYST_USER_PROMPT,
-            current_state="",
+            current_state=current_state,
             event=tasks_summary,
         ),
     )
