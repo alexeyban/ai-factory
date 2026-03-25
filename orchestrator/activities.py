@@ -1753,6 +1753,7 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             architect_input=architect_notes[:_PM_MAX_NOTES_CHARS],
             analyst_input=analyst_notes[:_PM_MAX_NOTES_CHARS],
         ),
+        max_tokens=4096,
     )
 
     try:
