@@ -1,0 +1,115 @@
+{
+  "dataset_version": "1.0",
+  "difficulty": "expert",
+  "tasks": [
+    {
+      "task_id": "bench_expert_001",
+      "title": "Async producer-consumer with backpressure",
+      "description": "Write a Python async solution with: `AsyncQueue` class that wraps asyncio.Queue with a max size, `producer(queue, items)` coroutine that puts items into the queue with backpressure, and `consumer(queue, results)` coroutine that processes items and appends to results. Both should work correctly with asyncio.gather. The queue should block producers when full.",
+      "difficulty": "expert",
+      "type": "dev",
+      "tests": [
+        "import asyncio; results = []; queue = AsyncQueue(maxsize=2); asyncio.run(asyncio.gather(producer(queue, [1,2,3]), consumer(queue, results))); assert sorted(results) == [1,2,3]",
+        "import asyncio; results = []; queue = AsyncQueue(maxsize=1); asyncio.run(asyncio.gather(producer(queue, list(range(5))), consumer(queue, results))); assert len(results) == 5"
+      ],
+      "hidden_tests": [
+        "import asyncio; q = AsyncQueue(maxsize=3); assert q.maxsize == 3",
+        "import asyncio; results = []; queue = AsyncQueue(maxsize=10); asyncio.run(asyncio.gather(producer(queue, []), consumer(queue, results))); assert results == []"
+      ],
+      "expected_output": {
+        "function_name": "AsyncQueue/producer/consumer",
+        "signature": "class AsyncQueue"
+      },
+      "time_limit_ms": 2000,
+      "memory_limit_mb": 100
+    },
+    {
+      "task_id": "bench_expert_002",
+      "title": "Thread-safe bounded counter",
+      "description": "Write a Python class `BoundedCounter` with `__init__(self, max_val: int)`, `increment(self) -> bool` (thread-safe, returns True if incremented, False if already at max), `decrement(self) -> bool` (returns True if decremented, False if already at 0), and `value(self) -> int`. Must be safe under concurrent access from multiple threads.",
+      "difficulty": "expert",
+      "type": "dev",
+      "tests": [
+        "c = BoundedCounter(3); assert c.increment() is True; assert c.increment() is True; assert c.value() == 2",
+        "c = BoundedCounter(1); c.increment(); assert c.increment() is False; assert c.value() == 1",
+        "c = BoundedCounter(5); assert c.decrement() is False; assert c.value() == 0"
+      ],
+      "hidden_tests": [
+        "import threading; c = BoundedCounter(100); threads = [threading.Thread(target=c.increment) for _ in range(50)]; [t.start() for t in threads]; [t.join() for t in threads]; assert c.value() == 50",
+        "c = BoundedCounter(2); c.increment(); c.increment(); c.decrement(); assert c.value() == 1"
+      ],
+      "expected_output": {
+        "function_name": "BoundedCounter",
+        "signature": "class BoundedCounter"
+      },
+      "time_limit_ms": 2000,
+      "memory_limit_mb": 100
+    },
+    {
+      "task_id": "bench_expert_003",
+      "title": "Custom context manager with retry",
+      "description": "Write a Python class `RetryContext` that acts as a context manager and decorator. `__init__(self, max_retries: int, exceptions: tuple = (Exception,), delay: float = 0.0)`. When used as a context manager or decorator, it retries the block/function up to max_retries times on the specified exceptions. After exhausting retries it re-raises the last exception.",
+      "difficulty": "expert",
+      "type": "dev",
+      "tests": [
+        "calls = []; ctx = RetryContext(3)\nwith ctx:\n    calls.append(1)\nassert calls == [1]",
+        "calls = [0]\ndef flaky():\n    calls[0] += 1\n    if calls[0] < 3:\n        raise ValueError('not yet')\nRetryContext(5)(flaky)()\nassert calls[0] == 3",
+        "import pytest\nctx = RetryContext(2, exceptions=(ValueError,))\ntry:\n    with ctx:\n        raise ValueError('fail')\nexcept ValueError:\n    pass"
+      ],
+      "hidden_tests": [
+        "calls = [0]\n@RetryContext(3)\ndef boom():\n    calls[0] += 1\n    raise RuntimeError('x')\ntry:\n    boom()\nexcept RuntimeError:\n    pass\nassert calls[0] == 3",
+        "ctx = RetryContext(2, exceptions=(TypeError,))\ntry:\n    with ctx:\n        raise ValueError('wrong type')\nexcept ValueError:\n    pass"
+      ],
+      "expected_output": {
+        "function_name": "RetryContext",
+        "signature": "class RetryContext"
+      },
+      "time_limit_ms": 2000,
+      "memory_limit_mb": 100
+    },
+    {
+      "task_id": "bench_expert_004",
+      "title": "Implement a simple event loop dispatcher",
+      "description": "Write a Python class `EventDispatcher` with `subscribe(event: str, handler: callable) -> None`, `unsubscribe(event: str, handler: callable) -> None`, `emit(event: str, *args, **kwargs) -> list` (calls all handlers, collects return values). Thread-safe. Handlers are called in subscription order.",
+      "difficulty": "expert",
+      "type": "dev",
+      "tests": [
+        "d = EventDispatcher(); results = []; d.subscribe('click', lambda x: results.append(x)); d.emit('click', 42); assert results == [42]",
+        "d = EventDispatcher(); h = lambda: 'hello'; d.subscribe('x', h); d.unsubscribe('x', h); d.emit('x'); assert d.emit('x') == []",
+        "d = EventDispatcher(); d.subscribe('e', lambda: 1); d.subscribe('e', lambda: 2); r = d.emit('e'); assert r == [1, 2]"
+      ],
+      "hidden_tests": [
+        "d = EventDispatcher(); assert d.emit('no_such_event') == []",
+        "import threading; d = EventDispatcher(); calls = []; d.subscribe('t', lambda: calls.append(1)); threads = [threading.Thread(target=d.emit, args=('t',)) for _ in range(10)]; [t.start() for t in threads]; [t.join() for t in threads]; assert len(calls) == 10"
+      ],
+      "expected_output": {
+        "function_name": "EventDispatcher",
+        "signature": "class EventDispatcher"
+      },
+      "time_limit_ms": 2000,
+      "memory_limit_mb": 100
+    },
+    {
+      "task_id": "bench_expert_005",
+      "title": "Trie with autocomplete",
+      "description": "Write a Python class `Trie` with `insert(word: str) -> None`, `search(word: str) -> bool` (exact match), `starts_with(prefix: str) -> bool`, and `autocomplete(prefix: str) -> list[str]` (returns all words with the given prefix, sorted alphabetically).",
+      "difficulty": "expert",
+      "type": "dev",
+      "tests": [
+        "t = Trie(); t.insert('apple'); assert t.search('apple') is True; assert t.search('app') is False",
+        "t = Trie(); t.insert('apple'); assert t.starts_with('app') is True; assert t.starts_with('xyz') is False",
+        "t = Trie(); t.insert('apple'); t.insert('app'); t.insert('application'); result = t.autocomplete('app'); assert sorted(result) == ['app', 'apple', 'application']"
+      ],
+      "hidden_tests": [
+        "t = Trie(); assert t.autocomplete('x') == []",
+        "t = Trie(); t.insert('hello'); t.insert('world'); assert t.autocomplete('') == ['hello', 'world']"
+      ],
+      "expected_output": {
+        "function_name": "Trie",
+        "signature": "class Trie"
+      },
+      "time_limit_ms": 500,
+      "memory_limit_mb": 100
+    }
+  ]
+}
