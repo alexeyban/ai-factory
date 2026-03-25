@@ -33,6 +33,13 @@ async def run_worker():
     temporal_address = os.getenv("TEMPORAL_ADDRESS", "temporal:7233")
     temporal_namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
     task_queue = os.getenv("TASK_QUEUE", "ai-factory-tasks")
+    # EXTRA_TASK_QUEUES: comma-separated additional queues to serve in the same process.
+    # Useful for local/e2e runs where separate agent containers are not available.
+    extra_queues = [
+        q.strip()
+        for q in os.getenv("EXTRA_TASK_QUEUES", "").split(",")
+        if q.strip()
+    ]
     client = None
 
     logging.info(f"Connecting to Temporal at {temporal_address}")
