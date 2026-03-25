@@ -1649,6 +1649,7 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             ARCHITECT_USER_PROMPT,
             project_description=description,
         ),
+        max_tokens=4096,
     )
     tasks = _ensure_task_list(output)
     fallback_tasks = _extract_tasks_from_spec(description)
