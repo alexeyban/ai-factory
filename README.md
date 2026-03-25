@@ -170,24 +170,24 @@ Each agent can be tested independently without running the full Docker stack:
 
 ```bash
 # PM agent
-PYTHONPATH=. LLM_MODEL=opencode/bigpickle .venv/bin/python scripts/debug_pm.py
+PYTHONPATH=. LLM_MODEL=glm-5 .venv/bin/python scripts/debug_pm.py
 
 # Architect (feed it PM output)
-PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+PYTHONPATH=. LLM_MODEL=glm-5 \
     PM_OUTPUT=/tmp/debug_pm_<id>.json \
     .venv/bin/python scripts/debug_architect.py
 
 # Decomposer (feed it architect output)
-PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+PYTHONPATH=. LLM_MODEL=glm-5 \
     ARCHITECT_OUTPUT=/tmp/debug_architect_<id>.json \
     .venv/bin/python scripts/debug_decomposer.py
 
 # Dev agent (single task)
-PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+PYTHONPATH=. LLM_MODEL=glm-5 \
     .venv/bin/python scripts/debug_dev.py
 
 # QA agent (single artifact)
-PYTHONPATH=. LLM_MODEL=minimax/MiniMax-M2.5-Free \
+PYTHONPATH=. LLM_MODEL=glm-5 \
     ARTIFACT=/path/to/artifact.py \
     .venv/bin/python scripts/debug_qa.py
 ```
