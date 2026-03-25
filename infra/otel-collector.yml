@@ -1,0 +1,34 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 512
+
+  # Sample 10% of traces in production to reduce overhead
+  probabilistic_sampler:
+    sampling_percentage: 10
+
+exporters:
+  # Log traces to stdout for development; replace with Jaeger/Tempo in prod
+  logging:
+    verbosity: normal
+
+  # Uncomment to forward to Jaeger:
+  # jaeger:
+  #   endpoint: jaeger:14250
+  #   tls:
+  #     insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [logging]
