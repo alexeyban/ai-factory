@@ -607,7 +607,14 @@ class OrchestratorWorkflow:
                 "analyst_activity",
                 await workflow.execute_activity(
                     analyst_activity,
-                    {"dev_qa_results": dev_qa_results, "workflow_id": workflow_id},
+                    {
+                        "dev_qa_results": dev_qa_results,
+                        "workflow_id": workflow_id,
+                        "_workflow_id": workflow_id,
+                        "project_goal": pm_result.get("project_goal", "")[:500],
+                        "delivery_summary": pm_result.get("delivery_summary", "")[:500],
+                        "analyst_guidance": pm_result.get("analyst_guidance", []),
+                    },
                     start_to_close_timeout=timedelta(
                         minutes=LLM_ACTIVITY_TIMEOUT_MINUTES
                     ),
