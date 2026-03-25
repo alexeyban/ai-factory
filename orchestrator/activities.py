@@ -402,30 +402,35 @@ def _strip_code_fences(text: str) -> str:
 def _extract_json(text: str) -> str:
     """Extract JSON from LLM output that may be wrapped in markdown code fences.
 
-    Handles ```json...```, ```...```, and bare JSON objects/arrays.
+    Handles ```json...```, ```...```, bare JSON, and truncated (unclosed) fences.
     Returns the raw text unchanged if no JSON block is found.
     """
     import re as _re
-    # Try ```json ... ``` or ``` ... ``` fences first
+    # Strip opening code fence (handles both closed and unclosed/truncated fences)
+    stripped = _re.sub(r"^```(?:json)?\s*\n?", "", text.lstrip(), count=1)
+
+    # Try ```json ... ``` or ``` ... ``` fences first (complete fences)
     match = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", text, _re.DOTALL)
     if match:
         candidate = match.group(1).strip()
         if candidate.startswith(("{", "[")):
             return candidate
-    # Try to find a top-level JSON object or array in the raw text
-    for start_char, end_char in (("{", "}"), ("[", "]")):
-        start = text.find(start_char)
-        if start == -1:
-            continue
-        # Walk backwards from end to find matching close
-        end = text.rfind(end_char)
-        if end != -1 and end > start:
-            candidate = text[start:end + 1]
-            try:
-                json.loads(candidate)
-                return candidate
-            except json.JSONDecodeError:
-                pass
+
+    # Try to find a top-level JSON object or array in the stripped (or raw) text
+    for src in (stripped, text):
+        for start_char, end_char in (("{", "}"), ("[", "]")):
+            start = src.find(start_char)
+            if start == -1:
+                continue
+            # Walk backwards from end to find matching close
+            end = src.rfind(end_char)
+            if end != -1 and end > start:
+                candidate = src[start:end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    pass
     return text
 
 
