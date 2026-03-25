@@ -1676,21 +1676,24 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     description = task.get("description", "")
-    architect_notes = call_llm(
-        ARCHITECT_SYSTEM_PROMPT,
-        render_prompt(
-            ARCHITECT_USER_PROMPT,
-            project_description=description,
-        ),
+    _PM_DESIGN_BRIEFING_SYSTEM = (
+        "You are a solution architect. Given a project brief, output a concise technical analysis: "
+        "key design constraints, recommended technology choices, major components (max 5 bullets), "
+        "and top 3 risks. Be brief. Max 600 words. Plain text, no JSON."
     )
+    architect_notes = call_llm(
+        _PM_DESIGN_BRIEFING_SYSTEM,
+        f"Project brief:\n{description[:3000]}",
+    )
+    delivery_summary = task.get("delivery_summary", "")
+    failure_summary = task.get("failure_summary", [])
+    recovery_current_state = f"Delivery goal: {delivery_summary}" if delivery_summary else ""
     analyst_notes = call_llm(
         ANALYST_SYSTEM_PROMPT,
         render_prompt(
             ANALYST_USER_PROMPT,
-            current_state="",
-            event=json.dumps(
-                task.get("failure_summary", []), indent=2, ensure_ascii=True
-            ),
+            current_state=recovery_current_state,
+            event=json.dumps(failure_summary, indent=2, ensure_ascii=True),
         ),
     )
     _PM_MAX_NOTES_CHARS = 4000
