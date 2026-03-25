@@ -2,6 +2,9 @@ Project description:
 {project_description}
 
 Requirements:
+- Implement EXACTLY what the PM guidance describes — do NOT add unrequested features
+- Keep task count proportional to the PM's execution_plan scope
+- Embed any PM cross-cutting constraints from architect_guidance into each task's input.context
 - Design a complete solution architecture, not just a code breakdown
 - Consider backend, frontend, data, infrastructure, integrations, security, observability, and operations where relevant
 - Define tasks with clear boundaries and concrete deliverables
