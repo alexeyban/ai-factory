@@ -1442,14 +1442,16 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "[PM AGENT] Intake artifacts recorded: %s", list(intake_artifacts.keys())
     )
 
-    LOGGER.info("[PM AGENT] Step 1/3: Calling Architect LLM to analyze requirements...")
+    LOGGER.info("[PM AGENT] Step 1/3: Calling Architect LLM for design briefing...")
     architect_start = datetime.now()
+    _PM_DESIGN_BRIEFING_SYSTEM = (
+        "You are a solution architect. Given a project brief, output a concise technical analysis: "
+        "key design constraints, recommended technology choices, major components (max 5 bullets), "
+        "and top 3 risks. Be brief. Max 600 words. Plain text, no JSON."
+    )
     architect_notes = call_llm(
-        ARCHITECT_SYSTEM_PROMPT,
-        render_prompt(
-            ARCHITECT_USER_PROMPT,
-            project_description=description_full,
-        ),
+        _PM_DESIGN_BRIEFING_SYSTEM,
+        f"Project brief:\n{description_full[:3000]}",
     )
     LOGGER.info(
         "[PM AGENT] Architect LLM completed in %ds | response length: %d chars",
