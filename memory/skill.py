@@ -44,6 +44,7 @@ class Skill:
             "tags": list(self.tags),
             "created_at": self.created_at.isoformat(),
             "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "last_optimized_at": self.last_optimized_at.isoformat() if self.last_optimized_at else None,
             "is_active": self.is_active,
             # Embeddings are large; omit from generic dict to avoid bloating
             # payloads — store them separately in Qdrant.
