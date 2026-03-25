@@ -25,6 +25,7 @@ class Skill:
     tags: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_used_at: datetime | None = None
+    last_optimized_at: datetime | None = None
     is_active: bool = True
 
     # ------------------------------------------------------------------
