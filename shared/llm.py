@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+from shared.tracing import get_tracer
+
 from openai import (
     APIConnectionError,
     APITimeoutError,
