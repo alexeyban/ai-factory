@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS skills (
     tags TEXT[] DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_used_at TIMESTAMPTZ,
+    last_optimized_at TIMESTAMPTZ,   -- last refactor/merge run
     is_active BOOLEAN DEFAULT TRUE   -- FALSE = pruned
 );
 
