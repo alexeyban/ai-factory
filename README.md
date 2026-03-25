@@ -239,14 +239,18 @@ Phase 9  Agent interaction quality: PM design briefing, architect_guidance propa
 
 | Component | Status |
 |-----------|--------|
-| PM activity | ✓ Tested in isolation |
-| Architect activity | ✓ `assigned_agent` correctly populated |
+| PM activity | ✓ Lightweight design briefing, cross-cutting standards in architect_guidance |
+| Architect activity | ✓ architect_guidance propagated to every dev task's input.context |
 | Decomposer activity | ✓ All subtasks have type + title + assigned_agent |
 | Dev activity | ✓ Multi-file output, multi-candidate, skill-aware prompting |
-| QA activity | ✓ Reward computation, regression detection, Kafka publishing |
+| QA activity | ✓ Reward, regression detection, Kafka publishing, attempt_number tracking |
+| Analyst activity | ✓ Receives PM project_goal, delivery_summary, analyst_guidance |
+| Recovery cycle | ✓ failure_summary includes qa_root_cause + qa_fix_suggestion per task |
 | LearningWorkflow | ✓ Stagnation detection, perfect-score stop, policy update |
 | Memory / Skill Engine | ✓ PostgreSQL + Qdrant backed, full test coverage |
-| Full e2e pipeline | Not yet re-validated after self-learning additions |
+| Benchmarking | ✓ easy/medium/hard/expert datasets, Curriculum, MetricsExporter |
+| Production infra | ✓ Dockerfiles, OTel tracing, Prometheus/Grafana, Kafka topics script |
+| Full e2e pipeline | Not yet re-validated after Phase 9 additions |
 
 ## Purpose
 
