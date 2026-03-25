@@ -833,11 +833,15 @@ class ProjectWorkflow:
                     "project_name": pm_result.get("project_name", project_name),
                     "project_repo_path": pm_result.get("project_repo_path"),
                     "recovery_cycle": recovery_cycle,
+                    "architect_guidance": pm_result.get("architect_guidance", []),
+                    "delivery_summary": pm_result.get("delivery_summary", "")[:500],
                     "failure_summary": [
                         {
                             "task_id": r.get("task_id"),
                             "status": r.get("status"),
-                            "error": r.get("error"),
+                            "error": (r.get("error") or "")[:300],
+                            "qa_root_cause": ((r.get("qa") or r.get("summary") or {}).get("root_cause", ""))[:200],
+                            "qa_fix_suggestion": ((r.get("qa") or r.get("summary") or {}).get("fix_suggestion", ""))[:200],
                         }
                         for r in dev_qa_results
                     ],
