@@ -9,14 +9,21 @@ AI Factory is a Temporal-based multi-agent software delivery system. It takes a 
 ```
 OrchestratorWorkflow
   → pm_activity          (delivery plan, task breakdown, agent assignments)
+      ↳ uses lightweight design briefing (≤600 words) instead of full Architect JSON
+      ↳ architect_guidance carries cross-cutting standards for ALL dev tasks
   → architect_activity   (architecture docs + task list with assigned_agent)
+      ↳ architect_guidance from PM is embedded into every dev task's input.context
   → decomposer_activity  (split tasks exceeding token limit into subtasks)
   → process_all_tasks    (wave-based dispatch with dependency ordering)
       → dev_activity     (implement in task branch; multi-file output supported)
       → qa_activity      (lint + typecheck + pytest + LLM summary; merge to main)
+                          QA receives attempt_number — detects if fix_suggestion was applied
       → dev_activity     (self-healing fix cycle, up to DEV_QA_MAX_FIX_ATTEMPTS=2)
   → analyst_activity     (final project state, risks, recommendations)
+      ↳ receives PM project_goal, delivery_summary, analyst_guidance as context
   → pm_activity          (recovery re-planning if tasks blocked, up to PM_MAX_RECOVERY_CYCLES=2)
+      ↳ recovery failure_summary includes qa_root_cause + qa_fix_suggestion per failed task
+      ↳ recovery carries architect_guidance + delivery_summary from original PM plan
   → cleanup_stale_branches_activity (delete merged task-* branches)
 ```
 
