@@ -170,7 +170,7 @@ def _wrap_activity_result(
 
 def _ensure_task_list(output: str) -> List[Dict[str, Any]]:
     try:
-        parsed = json.loads(output)
+        parsed = json.loads(_extract_json(output))
     except json.JSONDecodeError:
         return [{"task_id": str(uuid.uuid4()), "description": output}]
 
