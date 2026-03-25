@@ -2893,3 +2893,47 @@ async def policy_update_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         LOGGER.warning("[policy_update] Skipped: %s", exc)
         return {"ok": False, "error": str(exc)}
+
+
+@activity.defn
+async def skill_optimization_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a skill optimization cycle: refactor + merge + prune.
+
+    Triggered every SKILL_OPTIMIZE_EVERY_N episodes by LearningWorkflow.
+
+    Input keys:
+        episode_count — total completed episodes (used for trigger check)
+
+    Returns:
+        {"ok": True/False, "refactored": N, "merged": M, "pruned": K}
+    """
+    episode_count = int(input_data.get("episode_count", 0))
+    LOGGER.info("[skill_optimization] Starting cycle (episode_count=%d)", episode_count)
+
+    try:
+        from memory.db import MemoryDB
+        from memory.vector_store import VectorMemory
+        from memory.skill_optimizer import SkillOptimizer
+        from skills import SkillRegistry
+
+        db = MemoryDB()
+        await db.connect()
+        try:
+            vector = VectorMemory()
+            registry = SkillRegistry()
+            optimizer = SkillOptimizer(
+                db=db,
+                vector_memory=vector,
+                llm_fn=call_llm,
+                skill_registry=registry,
+            )
+            stats = await optimizer.run_optimization_cycle(episode_count)
+        finally:
+            await db.close()
+
+        LOGGER.info("[skill_optimization] Done: %s", stats)
+        return {"ok": True, **stats}
+
+    except Exception as exc:
+        LOGGER.warning("[skill_optimization] Skipped: %s", exc)
+        return {"ok": False, "error": str(exc)}
