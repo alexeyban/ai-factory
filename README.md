@@ -228,9 +228,9 @@ Phase 4  QA + Reward: RewardEngine, junit XML, regression detection, Kafka event
 Phase 5  Learning Loop: LearningWorkflow, ReplayBuffer, PolicyUpdater
 ```
 
-**Test suite: 218 tests, all passing** (`PYTHONPATH=. pytest tests/`)
+**Test suite: 286 tests, all passing** (`PYTHONPATH=. pytest tests/`)
 
-## Pipeline Status (2026-03-24)
+## Pipeline Status (2026-03-25)
 
 | Component | Status |
 |-----------|--------|
