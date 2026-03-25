@@ -1,7 +1,7 @@
-Current project state:
+Project plan and goals:
 {current_state}
 
-New event:
+Execution results to analyze:
 {event}
 
 Update the state with:
