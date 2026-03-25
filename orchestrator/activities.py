@@ -1064,7 +1064,7 @@ def _generate_dev_artifact(
 
 
 def _summarize_qa_result(
-    task_description: str, qa_logs: str, status: str
+    task_description: str, qa_logs: str, status: str, attempt_number: int = 1
 ) -> Dict[str, Any]:
     qa_summary_raw = call_llm(
         QA_SYSTEM_PROMPT,
@@ -1072,6 +1072,7 @@ def _summarize_qa_result(
             QA_USER_PROMPT,
             test_logs=qa_logs,
             task_description=task_description,
+            attempt_number=attempt_number,
         ),
     )
     try:
