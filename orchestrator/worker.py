@@ -62,39 +62,45 @@ async def run_worker():
             else:
                 raise
 
-    logging.info(f"Starting worker on task queue: {task_queue}")
+    all_queues = [task_queue] + extra_queues
+    logging.info(f"Starting worker on task queues: {all_queues}")
 
     if client is None:
         raise RuntimeError("Temporal client was not initialized")
 
-    worker = Worker(
-        client,
-        task_queue=task_queue,
-        workflows=[OrchestratorWorkflow, ProjectWorkflow, LearningWorkflow],
-        activities=[
-            pm_activity,
-            pm_recovery_activity,
-            architect_activity,
-            decomposer_activity,
-            dev_activity,
-            qa_activity,
-            analyst_activity,
-            cleanup_stale_branches_activity,
-            extract_skill_activity,
-            policy_update_activity,
-            skill_optimization_activity,
-            process_single_task,
-            process_all_tasks,
-            dev_task,
-            qa_task,
-            refactor_task,
-            setup_task,
-            docs_task,
-        ],
-    )
+    all_activities = [
+        pm_activity,
+        pm_recovery_activity,
+        architect_activity,
+        decomposer_activity,
+        dev_activity,
+        qa_activity,
+        analyst_activity,
+        cleanup_stale_branches_activity,
+        extract_skill_activity,
+        policy_update_activity,
+        skill_optimization_activity,
+        process_single_task,
+        process_all_tasks,
+        dev_task,
+        qa_task,
+        refactor_task,
+        setup_task,
+        docs_task,
+    ]
 
-    logging.info("Worker started, waiting for tasks...")
-    await worker.run()
+    workers = [
+        Worker(
+            client,
+            task_queue=q,
+            workflows=[OrchestratorWorkflow, ProjectWorkflow, LearningWorkflow] if q == task_queue else [],
+            activities=all_activities,
+        )
+        for q in all_queues
+    ]
+
+    logging.info("Worker(s) started, waiting for tasks...")
+    await asyncio.gather(*[w.run() for w in workers])
 
 
 async def main():
