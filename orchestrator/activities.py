@@ -1528,6 +1528,7 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             architect_input=architect_notes[:_PM_MAX_NOTES_CHARS],
             analyst_input=analyst_notes[:_PM_MAX_NOTES_CHARS],
         ),
+        max_tokens=4096,
     )
     LOGGER.info(
         "[PM AGENT] PM LLM completed in %ds | response length: %d chars",
