@@ -144,6 +144,7 @@ File paths come from the task contract's `output.files` list. If the LLM returns
 | `LLM_PROVIDER` | `opencode` | Primary LLM provider |
 | `LLM_MODEL` | `glm-5` | Primary model (OpenCode GLM-5) |
 | `LLM_FALLBACK_ORDER` | `opencode,gemini,openai,deepseek,ollama` | Fallback chain |
+| `OPENCODE_MODEL` | `glm-5` | OpenCode provider model |
 | `LLM_MAX_PROMPT_TOKENS` | `8000` | Token limit before decomposition |
 | `LLM_PROVIDER_COOLDOWN_SECONDS` | `15` | Cooldown after 429 |
 | `MOCK_LLM` | `false` | Skip real LLM calls |
