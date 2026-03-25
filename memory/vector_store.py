@@ -104,6 +104,55 @@ class VectorMemory:
         )
         return [{"id": r.id, "score": r.score, **r.payload} for r in results]
 
+    async def delete_skill(self, skill_id: str) -> None:
+        """Remove a skill point from Qdrant (soft-delete companion)."""
+        try:
+            self._client.delete(
+                collection_name=SKILLS_COLLECTION,
+                points_selector=[skill_id],
+            )
+        except Exception as exc:
+            LOGGER.warning("VectorMemory.delete_skill(%s) failed: %s", skill_id, exc)
+
+    async def search_skills(
+        self,
+        query_vector: list[float],
+        skill_id: str | None = None,
+        limit: int = 10,
+        score_threshold: float = 0.85,
+    ) -> list[dict]:
+        """Search skills similar to query_vector (or a stored skill's vector).
+
+        If skill_id is provided and query_vector is empty, the method retrieves
+        the stored vector for that skill first (via get_points) then searches.
+        """
+        if not query_vector and skill_id:
+            try:
+                points = self._client.retrieve(
+                    collection_name=SKILLS_COLLECTION,
+                    ids=[skill_id],
+                    with_vectors=True,
+                )
+                if points:
+                    query_vector = points[0].vector or []
+            except Exception:
+                return []
+
+        if not query_vector:
+            return []
+
+        try:
+            results = self._client.search(
+                collection_name=SKILLS_COLLECTION,
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+            )
+            return [{"id": r.id, "score": r.score, **r.payload} for r in results]
+        except Exception as exc:
+            LOGGER.warning("VectorMemory.search_skills failed: %s", exc)
+            return []
+
     # ------------------------------------------------------------------
     # Episodes
     # ------------------------------------------------------------------
