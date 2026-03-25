@@ -399,6 +399,36 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
+def _extract_json(text: str) -> str:
+    """Extract JSON from LLM output that may be wrapped in markdown code fences.
+
+    Handles ```json...```, ```...```, and bare JSON objects/arrays.
+    Returns the raw text unchanged if no JSON block is found.
+    """
+    import re as _re
+    # Try ```json ... ``` or ``` ... ``` fences first
+    match = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", text, _re.DOTALL)
+    if match:
+        candidate = match.group(1).strip()
+        if candidate.startswith(("{", "[")):
+            return candidate
+    # Try to find a top-level JSON object or array in the raw text
+    for start_char, end_char in (("{", "}"), ("[", "]")):
+        start = text.find(start_char)
+        if start == -1:
+            continue
+        # Walk backwards from end to find matching close
+        end = text.rfind(end_char)
+        if end != -1 and end > start:
+            candidate = text[start:end + 1]
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+    return text
+
+
 def _next_version_path(directory: Path, prefix: str, suffix: str) -> Path:
     existing = sorted(directory.glob(f"{prefix}_v*{suffix}"))
     next_version = len(existing) + 1
