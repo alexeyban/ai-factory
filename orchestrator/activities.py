@@ -1538,7 +1538,7 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     try:
-        plan = json.loads(pm_output)
+        plan = json.loads(_extract_json(pm_output))
     except json.JSONDecodeError:
         LOGGER.warning("[PM AGENT] Plan not valid JSON, using fallback plan")
         plan = {
@@ -1748,7 +1748,7 @@ async def pm_recovery_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     try:
-        plan = json.loads(pm_output)
+        plan = json.loads(_extract_json(pm_output))
     except json.JSONDecodeError:
         plan = {
             "project_goal": task.get("project_name", "project"),
