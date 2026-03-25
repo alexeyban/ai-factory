@@ -8,3 +8,6 @@ temporalio>=1.0.0
 # Phase 1 — Memory layer
 asyncpg>=0.29.0
 qdrant-client>=1.9.0
+
+# Phase 7 — Benchmarking metrics
+prometheus_client>=0.20.0
