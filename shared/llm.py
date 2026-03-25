@@ -377,19 +377,30 @@ def _request_with_fallback(
         if config.max_tokens is not None:
             request_kwargs["max_tokens"] = config.max_tokens
 
-        try:
-            completion = client.chat.completions.create(**request_kwargs)
-            _record_provider_request(fallback_provider)
-            _clear_provider_cooldown(fallback_provider)
-            return _extract_text_from_completion(completion)
-        except Exception as exc:
-            _record_provider_request(fallback_provider)
-            if _is_rate_limit_error(exc):
-                _mark_provider_rate_limited(fallback_provider)
-            last_error = exc
-            if not _is_retryable_llm_error(exc):
-                raise
-            continue
+        _tracer = get_tracer("shared.llm")
+        with _tracer.start_as_current_span("llm.chat_completion") as span:
+            span.set_attribute("llm.provider", fallback_provider)
+            span.set_attribute("llm.model", config.model)
+            span.set_attribute(
+                "llm.prompt_tokens",
+                sum(len(m.get("content", "")) // 4 for m in messages),
+            )
+            try:
+                completion = client.chat.completions.create(**request_kwargs)
+                _record_provider_request(fallback_provider)
+                _clear_provider_cooldown(fallback_provider)
+                result = _extract_text_from_completion(completion)
+                span.set_attribute("llm.response_tokens", len(result) // 4)
+                return result
+            except Exception as exc:
+                _record_provider_request(fallback_provider)
+                span.record_exception(exc)
+                if _is_rate_limit_error(exc):
+                    _mark_provider_rate_limited(fallback_provider)
+                last_error = exc
+                if not _is_retryable_llm_error(exc):
+                    raise
+                continue
 
     if last_error:
         raise last_error
