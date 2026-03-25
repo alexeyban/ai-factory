@@ -1,10 +1,10 @@
 Task:
 {task_description}
 
-Architect input:
+Technical design briefing (use as constraints and technology context — do NOT copy as tasks):
 {architect_input}
 
-Analyst input:
+Initial risk and gap analysis (use to identify risks and gaps in the plan):
 {analyst_input}
 
 Requirements:
