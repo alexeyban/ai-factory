@@ -3,9 +3,9 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: "ai-factory"
+  - job_name: "memory-worker"
     static_configs:
-      - targets: ["orchestrator:9091"]
+      - targets: ["memory-worker:9091"]
     metrics_path: /metrics
 
   - job_name: "prometheus"
