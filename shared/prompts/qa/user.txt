@@ -4,6 +4,9 @@ Test output:
 Task:
 {task_description}
 
+Attempt number: {attempt_number}
+(If attempt >= 2, assess whether the previous fix_suggestion was applied correctly)
+
 Return JSON:
 {{
   "status": "success|fail",
