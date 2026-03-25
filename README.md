@@ -217,7 +217,7 @@ Temporal Web UI: `http://localhost:8088`
 | `workspace/.ai_factory/policy_state.json` | Exploration rate + reward rolling average (Phase 5) |
 | `skills/` | Extracted skill `.py` files + `registry.json` |
 
-## Self-Learning Stack (Phases 0–5)
+## Self-Learning Stack (Phases 0–9)
 
 ```
 Phase 0  Episode tracking (episode_id, log_episode_event)
@@ -226,6 +226,11 @@ Phase 2  Skill Engine: extract → store → retrieve → inject into dev prompt
 Phase 3  Dev evolution: multi-candidate generation, CodeComposer, epsilon-greedy
 Phase 4  QA + Reward: RewardEngine, junit XML, regression detection, Kafka events
 Phase 5  Learning Loop: LearningWorkflow, ReplayBuffer, PolicyUpdater
+Phase 6  Benchmarking datasets: easy/medium/hard/expert tasks, Curriculum, MetricsExporter
+Phase 7  Benchmarking pipeline: DatasetLoader, Curriculum state machine, Prometheus metrics
+Phase 8  Production infra: memory-worker, reward-worker, meta-agent, OTel tracing, Grafana dashboards
+Phase 9  Agent interaction quality: PM design briefing, architect_guidance propagation,
+         analyst PM-context, recovery QA root-cause, prompt label fixes, QA attempt tracking
 ```
 
 **Test suite: 286 tests, all passing** (`PYTHONPATH=. pytest tests/`)
