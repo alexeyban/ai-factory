@@ -1,0 +1,140 @@
+{
+  "dataset_version": "1.0",
+  "difficulty": "hard",
+  "tasks": [
+    {
+      "task_id": "bench_hard_001",
+      "title": "LRU Cache",
+      "description": "Implement a class `LRUCache` with a constructor `__init__(self, capacity: int)`, a method `get(self, key: int) -> int` that returns the value or -1 if not found, and a method `put(self, key: int, value: int) -> None` that inserts or updates the key. When capacity is exceeded, evict the least recently used item. Both `get` and `put` must run in O(1).",
+      "difficulty": "hard",
+      "type": "dev",
+      "tests": [
+        "cache = LRUCache(2); cache.put(1, 1); cache.put(2, 2); assert cache.get(1) == 1",
+        "cache = LRUCache(2); cache.put(1, 1); cache.put(2, 2); cache.get(1); cache.put(3, 3); assert cache.get(2) == -1",
+        "cache = LRUCache(1); cache.put(1, 1); cache.put(2, 2); assert cache.get(1) == -1; assert cache.get(2) == 2"
+      ],
+      "hidden_tests": [
+        "cache = LRUCache(2); cache.put(1, 1); cache.put(2, 2); cache.get(1); cache.put(3, 3); assert cache.get(1) == 1; assert cache.get(3) == 3",
+        "cache = LRUCache(3); cache.put(1,1); cache.put(2,2); cache.put(3,3); cache.put(4,4); assert cache.get(1) == -1"
+      ],
+      "expected_output": {
+        "function_name": "LRUCache",
+        "signature": "class LRUCache"
+      },
+      "time_limit_ms": 200,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_hard_002",
+      "title": "Word ladder length",
+      "description": "Write a Python function `word_ladder(begin_word: str, end_word: str, word_list: list[str]) -> int` that returns the length of the shortest transformation sequence from begin_word to end_word where each step changes exactly one letter and each intermediate word must be in word_list. Return 0 if no path exists.",
+      "difficulty": "hard",
+      "type": "dev",
+      "tests": [
+        "assert word_ladder('hit', 'cog', ['hot','dot','dog','lot','log','cog']) == 5",
+        "assert word_ladder('hit', 'cog', ['hot','dot','dog','lot','log']) == 0",
+        "assert word_ladder('a', 'c', ['a','b','c']) == 2"
+      ],
+      "hidden_tests": [
+        "assert word_ladder('hot', 'dog', ['hot','dot','dog','lot','log']) == 3",
+        "assert word_ladder('abc', 'abc', ['abc']) == 1"
+      ],
+      "expected_output": {
+        "function_name": "word_ladder",
+        "signature": "def word_ladder(begin_word: str, end_word: str, word_list: list[str]) -> int"
+      },
+      "time_limit_ms": 1000,
+      "memory_limit_mb": 100
+    },
+    {
+      "task_id": "bench_hard_003",
+      "title": "Serialize and deserialize binary tree",
+      "description": "Write two Python functions: `serialize(root) -> str` that encodes a binary tree to a string, and `deserialize(data: str) -> TreeNode` that decodes that string back to a binary tree. Use a simple `TreeNode` class with `val`, `left`, `right` attributes.",
+      "difficulty": "hard",
+      "type": "dev",
+      "tests": [
+        "root = TreeNode(1); root.left = TreeNode(2); root.right = TreeNode(3); data = serialize(root); t = deserialize(data); assert t.val == 1 and t.left.val == 2 and t.right.val == 3",
+        "assert deserialize(serialize(None)) is None",
+        "root = TreeNode(1); data = serialize(root); t = deserialize(data); assert t.val == 1 and t.left is None and t.right is None"
+      ],
+      "hidden_tests": [
+        "root = TreeNode(1); root.left = TreeNode(2); root.left.left = TreeNode(4); data = serialize(root); t = deserialize(data); assert t.left.left.val == 4",
+        "root = TreeNode(5); root.right = TreeNode(3); data = serialize(root); t = deserialize(data); assert t.right.val == 3 and t.left is None"
+      ],
+      "expected_output": {
+        "function_name": "serialize/deserialize",
+        "signature": "def serialize(root) -> str"
+      },
+      "time_limit_ms": 500,
+      "memory_limit_mb": 100
+    },
+    {
+      "task_id": "bench_hard_004",
+      "title": "Median of two sorted arrays",
+      "description": "Write a Python function `find_median_sorted_arrays(nums1: list[int], nums2: list[int]) -> float` that finds the median of two sorted arrays in O(log(m+n)) time.",
+      "difficulty": "hard",
+      "type": "dev",
+      "tests": [
+        "assert find_median_sorted_arrays([1, 3], [2]) == 2.0",
+        "assert find_median_sorted_arrays([1, 2], [3, 4]) == 2.5",
+        "assert find_median_sorted_arrays([], [1]) == 1.0"
+      ],
+      "hidden_tests": [
+        "assert find_median_sorted_arrays([0, 0], [0, 0]) == 0.0",
+        "assert find_median_sorted_arrays([1, 2, 3, 4, 5], [6, 7, 8, 9, 10]) == 5.5"
+      ],
+      "expected_output": {
+        "function_name": "find_median_sorted_arrays",
+        "signature": "def find_median_sorted_arrays(nums1: list[int], nums2: list[int]) -> float"
+      },
+      "time_limit_ms": 200,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_hard_005",
+      "title": "Trapping rain water",
+      "description": "Write a Python function `trap(height: list[int]) -> int` that computes how much water can be trapped between the bars represented by the height array.",
+      "difficulty": "hard",
+      "type": "dev",
+      "tests": [
+        "assert trap([0,1,0,2,1,0,1,3,2,1,2,1]) == 6",
+        "assert trap([4,2,0,3,2,5]) == 9",
+        "assert trap([]) == 0",
+        "assert trap([3]) == 0"
+      ],
+      "hidden_tests": [
+        "assert trap([1,0,1]) == 1",
+        "assert trap([3,0,2,0,4]) == 7"
+      ],
+      "expected_output": {
+        "function_name": "trap",
+        "signature": "def trap(height: list[int]) -> int"
+      },
+      "time_limit_ms": 200,
+      "memory_limit_mb": 50
+    },
+    {
+      "task_id": "bench_hard_006",
+      "title": "Edit distance",
+      "description": "Write a Python function `edit_distance(word1: str, word2: str) -> int` that returns the minimum number of operations (insert, delete, replace) to convert word1 to word2.",
+      "difficulty": "hard",
+      "type": "dev",
+      "tests": [
+        "assert edit_distance('horse', 'ros') == 3",
+        "assert edit_distance('intention', 'execution') == 5",
+        "assert edit_distance('', 'abc') == 3",
+        "assert edit_distance('abc', 'abc') == 0"
+      ],
+      "hidden_tests": [
+        "assert edit_distance('a', '') == 1",
+        "assert edit_distance('kitten', 'sitting') == 3"
+      ],
+      "expected_output": {
+        "function_name": "edit_distance",
+        "signature": "def edit_distance(word1: str, word2: str) -> int"
+      },
+      "time_limit_ms": 500,
+      "memory_limit_mb": 100
+    }
+  ]
+}
