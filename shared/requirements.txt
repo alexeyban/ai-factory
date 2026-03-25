@@ -11,3 +11,8 @@ qdrant-client>=1.9.0
 
 # Phase 7 — Benchmarking metrics
 prometheus_client>=0.20.0
+
+# Phase 8 — Observability (optional: install in Docker images)
+# opentelemetry-api>=1.24.0
+# opentelemetry-sdk>=1.24.0
+# opentelemetry-exporter-otlp-proto-grpc>=1.24.0
