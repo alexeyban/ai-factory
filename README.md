@@ -67,6 +67,18 @@ The repo still contains Kafka-oriented standalone agents under `agents/dispatche
 | `memory/skill_executor.py` | Subprocess sandbox for executing skills |
 | `skills/__init__.py` | SkillRegistry: local registry.json cache |
 | `scripts/debug_*.py` | Isolation test runners for each agent (no Temporal needed) |
+| `shared/tracing.py` | OpenTelemetry tracing with no-op fallback when SDK absent |
+| `memory/worker.py` | Kafka consumer + Prometheus metrics endpoint (port 9091) |
+| `memory/reward_worker.py` | Kafka consumer on qa.results → RewardEngine → reward.computed |
+| `orchestrator/meta_agent_worker.py` | Episode tracker; triggers SkillOptimizer every N episodes |
+| `benchmarks/dataset_loader.py` | Loads easy/medium/hard/expert benchmark task datasets |
+| `benchmarks/curriculum.py` | Curriculum state machine; promotes on 80% success rate |
+| `benchmarks/metrics_exporter.py` | Prometheus metrics wrapper for benchmark pipeline |
+| `infra/prometheus.yml` | Prometheus scrape config targeting memory-worker |
+| `infra/grafana/` | Grafana dashboards + datasource provisioning |
+| `infra/otel-collector.yml` | OpenTelemetry collector: OTLP gRPC/HTTP → logging exporter |
+| `infra/kafka_topics.sh` | Creates all 6 Kafka topics with retention policies |
+| `infra/dockerfiles/` | Dockerfiles for memory-worker, reward-worker, meta-agent |
 
 ## Agent Roles
 
