@@ -249,3 +249,48 @@ Self-improving AI Factory:
 * [x] Add {attempt_number} to QA prompt template
 * [x] Wire attempt_number into render_prompt call in _summarize_qa_result
 * QA can detect whether dev applied previous fix_suggestion on retries
+
+---
+
+# 🔧 PHASE 10 — E2E Pipeline Correctness
+
+## 🎯 Цель
+Починить end-to-end прогон с GLM-5: три root-cause бага блокируют все задачи.
+GLM-5 оборачивает JSON в markdown code fences, обрезает ответы без max_tokens,
+а QA syntax check вызывает ast.parse() на TOML/YAML/JSON файлах.
+
+**Plan:** `plans/noble-munching-fern.md`
+
+## TODO
+
+### 10.1 QA syntax check — пропускать не-Python файлы  [ ]
+* [ ] `shared/tools.py`: в `syntax_check()` добавить guard по расширению файла
+* [ ] Если `file_path.suffix not in (".py", ".pyw")` → `return ToolResult(ok=True, stdout="Skipped")`
+* Исправляет: `pyproject.toml` / `.yaml` / `.json` артефакты ломают QA ошибкой `ast.parse()`
+* Пример: T001 "Create project structure" падал 3 раза подряд из-за этого бага
+
+### 10.2 Architect + PM call_llm — max_tokens=4096  [x]
+* [x] `orchestrator/activities.py` `architect_activity`: добавлен `max_tokens=4096`
+* [x] `pm_activity` `call_llm`: добавлен `max_tokens=4096`
+* [x] `pm_recovery_activity` `call_llm`: добавлен `max_tokens=4096`
+* [x] `_extract_json()` helper добавлен после `_strip_code_fences()` для разбора JSON из code fences
+* Исправляет: GLM-5 обрезает JSON ответ без закрывающей ``` → fallback на 1 задачу
+
+### 10.3 Recovery cycle condition — правильный путь к qa.status  [ ]
+* [ ] `orchestrator/workflows.py` ~line 500:
+  `result.get("qa_status")` → `(result.get("qa") or {}).get("status")`
+* Исправляет: условие всегда возвращало None (qa вложен, не на верхнем уровне)
+
+### 10.4 Убрать debug logging из activities.py  [ ]
+* [ ] Убрать 3 временных `LOGGER.warning` для диагностики PM JSON parse (raw output, JSONDecodeError, _extract_json result)
+* Оставить только оригинальную одну строку warning
+
+### 10.5 Обновить README.md — LLM конфигурация  [ ]
+* [ ] LLM_MODEL default: `opencode/bigpickle` → `glm-5`
+* [ ] Debug scripts: обновить примеры с `glm-5`
+* [ ] Добавить заметку о `max_tokens=4096` для PM/Architect
+
+### 10.6 E2E верификация  [ ]
+* [ ] `docker compose up -d && EXTRA_TASK_QUEUES=... python -m orchestrator.worker`
+* [ ] `python scripts/e2e_simple.py` с GLM-5
+* Ожидаемый результат: хотя бы 1 из 3 задач завершается `status="complete"`
