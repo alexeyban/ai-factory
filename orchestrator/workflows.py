@@ -33,6 +33,7 @@ with workflow.unsafe.imports_passed_through():
         cleanup_stale_branches_activity,
         extract_skill_activity,
         policy_update_activity,
+        skill_optimization_activity,
         MAX_PM_RECOVERY_CYCLES,
     )
 
@@ -955,6 +956,7 @@ class ProjectWorkflow:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", "5"))
+_SKILL_OPTIMIZE_EVERY_N = int(os.getenv("SKILL_OPTIMIZE_EVERY_N", "10"))
 _DEFAULT_STAGNATION_THRESHOLD = int(os.getenv("STAGNATION_THRESHOLD", "3"))
 _LEARNING_ACTIVITY_TIMEOUT_MINUTES = int(
     os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30")
@@ -1152,6 +1154,32 @@ class LearningWorkflow:
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+        # 8. Skill optimization — runs every SKILL_OPTIMIZE_EVERY_N episodes
+        try:
+            with workflow.unsafe.sandbox_unrestricted():
+                import os as _os
+                _policy_path = (
+                    _os.path.join(_os.getenv("AI_FACTORY_WORKSPACE", "workspace"),
+                                  ".ai_factory", "policy_state.json")
+                )
+                import json as _json
+                _pstate = {}
+                try:
+                    with open(_policy_path) as _f:
+                        _pstate = _json.load(_f)
+                except Exception:
+                    pass
+            _total_episodes = int(_pstate.get("reward_samples", 0))
+        except Exception:
+            _total_episodes = 0
+        if _SKILL_OPTIMIZE_EVERY_N > 0 and _total_episodes > 0 and _total_episodes % _SKILL_OPTIMIZE_EVERY_N == 0:
+            await workflow.execute_activity(
+                skill_optimization_activity,
+                {"episode_count": _total_episodes},
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
         log_episode_event(
             episode_id=episode_id,
