@@ -722,10 +722,11 @@ def _mock_analyst_response(user_prompt: str) -> str:
 def _mock_llm(system_prompt: str, user_prompt: str) -> str:
     system_lower = system_prompt.lower()
 
-    if "architect" in system_lower:
-        return _mock_architect_response(user_prompt)
+    # PM check must come before architect: PM system prompt now mentions "architect_guidance"
     if "project manager" in system_lower or "senior pm" in system_lower:
         return _mock_pm_response(user_prompt)
+    if "solution architect" in system_lower or ("architect" in system_lower and "project manager" not in system_lower):
+        return _mock_architect_response(user_prompt)
     if "qa" in system_lower:
         return _mock_qa_response(user_prompt)
     if "analyst" in system_lower:
