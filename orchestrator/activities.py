@@ -1106,7 +1106,7 @@ def _summarize_qa_result(
         ),
     )
     try:
-        qa_summary = json.loads(qa_summary_raw)
+        qa_summary = json.loads(_extract_json(qa_summary_raw))
     except json.JSONDecodeError:
         qa_summary = {
             "status": status,
