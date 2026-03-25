@@ -80,6 +80,7 @@ class Skill:
             tags=list(data.get("tags", [])),
             created_at=created,
             last_used_at=_parse_dt(data.get("last_used_at")),
+            last_optimized_at=_parse_dt(data.get("last_optimized_at")),
             is_active=bool(data.get("is_active", True)),
         )
 
