@@ -193,6 +193,59 @@ Self-improving AI Factory:
 Существенное ограничение:
 использовать контракты и систему передачи сообщений с помощью текущего мехаихма через kafka
 
+---
 
+# 🤝 PHASE 9 — Agent Interaction Quality
 
+## 🎯 Цель
+Улучшить качество взаимодействия между PM, Architect, Analyst, Dev и QA агентами:
+устранить информационные потери в пайплайне, уменьшить дублирующие LLM-вызовы,
+добавить контекст PM и архитектуры в задачи для Dev-агентов.
 
+**Plan:** `plans/phase9_agent_interactions.md`
+
+## TODO
+
+### 9.1 Replace PM internal full-Architect call with design briefing  [x]
+* [x] Replace lines 1447-1453 in orchestrator/activities.py
+* [x] Same for pm_recovery_activity lines 1677-1683
+* Reduces wasted LLM call (40-50k chars → 600 words), no info loss
+
+### 9.2 Pass architect_guidance into dev task context  [x]
+* [x] architect_activity: append architect_guidance to each task's input.context after _normalize_task_list
+* [x] Raise _TASK_PROJ_DESC_MAX 800 → 1200
+* Dev agents now see cross-cutting standards for every task
+
+### 9.3 Fix analyst current_state=""  [x]
+* [x] orchestrator/workflows.py: pass project_goal, delivery_summary, analyst_guidance to analyst_activity
+* [x] orchestrator/activities.py: build current_state from those fields instead of ""
+* Analyst now knows PM goals before evaluating execution results
+
+### 9.4 Enrich recovery failure_summary with QA context  [x]
+* [x] workflows.py: add qa_root_cause, qa_fix_suggestion per failed task in failure_summary
+* [x] workflows.py: pass architect_guidance + delivery_summary into recovery_request
+* [x] pm_recovery_activity: use failure_summary as analyst current_state
+* Recovery PM now knows WHY tasks failed, not just that they failed
+
+### 9.5 Prompt: PM user.txt — rename input labels  [x]
+* [x] "Architect input:" → "Technical design briefing (... do NOT copy as tasks):"
+* [x] "Analyst input:" → "Initial risk and gap analysis:"
+* Prevents PM LLM copy-paste failure mode
+
+### 9.6 Prompt: PM system.txt — add cross-cutting standards rule  [x]
+* [x] Add section 8: CROSS-CUTTING STANDARDS in architect_guidance
+* architect_guidance becomes dev-actionable (naming, error handling, imports, testing)
+
+### 9.7 Prompt: Architect user.txt — add PM-alignment instruction  [x]
+* [x] Add: "do NOT add unrequested features", "keep task count proportional to PM scope"
+* Prevents architect over-engineering scope creep
+
+### 9.8 Prompt: Analyst user.txt — rename labels  [x]
+* [x] "Current project state:" → "Project plan and goals:"
+* [x] "New event:" → "Execution results to analyze:"
+* Matches new non-empty current_state usage
+
+### 9.9 Prompt: QA user.txt — add attempt context  [x]
+* [x] Add {attempt_number} to QA prompt template
+* [x] Wire attempt_number into render_prompt call in _summarize_qa_result
+* QA can detect whether dev applied previous fix_suggestion on retries
