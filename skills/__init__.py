@@ -80,6 +80,13 @@ class SkillRegistry:
             del skills[skill_id]
             self.save(skills)
 
+    def deactivate_skill(self, skill_id: str) -> None:
+        """Mark a skill as inactive in registry.json (soft delete)."""
+        skills = self.load()
+        if skill_id in skills:
+            skills[skill_id]["is_active"] = False
+            self.save(skills)
+
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
