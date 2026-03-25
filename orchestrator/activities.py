@@ -1631,7 +1631,7 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
     # Use a short project_description in task contexts to prevent the full PM plan
     # (which can be 30+ tasks with full objects) from being embedded into every task
     # and overflowing the decomposer's Temporal message payload.
-    _TASK_PROJ_DESC_MAX = 800
+    _TASK_PROJ_DESC_MAX = 1200
     project_context = {
         "project_name": _project_name(task),
         "project_repo_path": artifact_paths["project_repo_path"],
@@ -1639,6 +1639,15 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         "github_url": task.get("github_url", ""),
     }
     normalized_tasks = _normalize_task_list(tasks, project_context)
+
+    # Append architect_guidance to each task's input.context so dev agents see
+    # cross-cutting standards (naming, error handling, tech constraints).
+    guidance = task.get("architect_guidance", [])
+    if guidance:
+        guidance_str = "Architect guidelines: " + "; ".join(str(g) for g in guidance[:3])
+        for t in normalized_tasks:
+            existing = t.get("input", {}).get("context", "")
+            t.setdefault("input", {})["context"] = (existing + "\n\n" + guidance_str)[:1400]
 
     result = {
         "event_id": str(uuid.uuid4()),
