@@ -206,6 +206,75 @@ services:
     env_file:
       - .env
 
+  memory-worker:
+    build:
+      context: .
+      dockerfile: infra/dockerfiles/memory-worker.Dockerfile
+    depends_on:
+      - postgres
+      - qdrant
+      - kafka
+    ports:
+      - "9091:9091"
+    environment:
+      - MEMORY_DB_URL=${MEMORY_DB_URL:-postgresql://temporal:temporal@postgres:5432/ai_factory_memory}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
+      - METRICS_PORT=9091
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT:-http://otel-collector:4317}
+      - OTEL_SERVICE_NAME=memory-worker
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    env_file:
+      - .env
+
+  reward-worker:
+    build:
+      context: .
+      dockerfile: infra/dockerfiles/reward-worker.Dockerfile
+    depends_on:
+      - kafka
+      - memory-worker
+    environment:
+      - MEMORY_DB_URL=${MEMORY_DB_URL:-postgresql://temporal:temporal@postgres:5432/ai_factory_memory}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
+      - REWARD_CORRECTNESS_W=${REWARD_CORRECTNESS_W:-1.0}
+      - REWARD_PERF_W=${REWARD_PERF_W:-0.3}
+      - REWARD_COMPLEXITY_W=${REWARD_COMPLEXITY_W:-0.2}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT:-http://otel-collector:4317}
+      - OTEL_SERVICE_NAME=reward-worker
+    env_file:
+      - .env
+
+  meta-agent:
+    build:
+      context: .
+      dockerfile: infra/dockerfiles/meta-agent.Dockerfile
+    depends_on:
+      - temporal
+      - memory-worker
+      - kafka
+    environment:
+      - MEMORY_DB_URL=${MEMORY_DB_URL:-postgresql://temporal:temporal@postgres:5432/ai_factory_memory}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - TEMPORAL_ADDRESS=${TEMPORAL_ADDRESS:-temporal:7233}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
+      - SKILL_OPTIMIZE_EVERY_N=${SKILL_OPTIMIZE_EVERY_N:-10}
+    env_file:
+      - .env
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    volumes:
+      - ./infra/otel-collector.yml:/etc/otel-collector-config.yml
+    command: ["--config=/etc/otel-collector-config.yml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
   prometheus:
     image: prom/prometheus:latest
     ports:
