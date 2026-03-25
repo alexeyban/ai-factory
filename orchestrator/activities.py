@@ -1539,8 +1539,10 @@ async def pm_activity(task: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         plan = json.loads(_extract_json(pm_output))
-    except json.JSONDecodeError:
-        LOGGER.warning("[PM AGENT] Plan not valid JSON, using fallback plan")
+    except json.JSONDecodeError as _jde:
+        LOGGER.warning("[PM AGENT] Plan not valid JSON, using fallback plan — raw output (first 500 chars): %s", pm_output[:500])
+        LOGGER.warning("[PM AGENT] JSONDecodeError: %s", str(_jde))
+        LOGGER.warning("[PM AGENT] _extract_json result (first 500 chars): %s", _extract_json(pm_output)[:500])
         plan = {
             "project_goal": description_full,
             "delivery_summary": pm_output,
