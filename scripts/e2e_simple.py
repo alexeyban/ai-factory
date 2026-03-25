@@ -89,7 +89,9 @@ async def run_e2e(task_suite: list[dict]) -> dict:
     temporal_address = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
     temporal_namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
     task_queue = os.getenv("TASK_QUEUE", "ai-factory-tasks")
-    timeout_min = int(os.getenv("E2E_TIMEOUT_MIN", "45"))
+    timeout_min = int(os.getenv("E2E_TIMEOUT_MIN", "60"))
+    # Run one task at a time to avoid overwhelming rate-limited LLM providers
+    sequential = os.getenv("E2E_SEQUENTIAL", "true").lower() != "false"
 
     print(f"Connecting to Temporal at {temporal_address}...")
     client = await Client.connect(temporal_address, namespace=temporal_namespace)
