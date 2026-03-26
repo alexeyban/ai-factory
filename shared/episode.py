@@ -84,6 +84,17 @@ def log_episode_event(
         )
 
 
+def set_global_seed(seed: int) -> None:
+    """
+    Set the global random seed for reproducibility.
+
+    Uses Python's random module. For numpy-based code, callers must
+    additionally set np.random.seed(seed) themselves. LLM non-determinism
+    is not controlled here — use temperature=0 in API requests where supported.
+    """
+    random.seed(seed)
+
+
 def episode_event_to_json(
     episode_id: str,
     event_type: str,
