@@ -293,7 +293,7 @@ async def _dispatch_tasks(
                 f"[{workflow_id}] Previous wave had rate-limit failures; "
                 f"waiting {INTER_WAVE_RATE_LIMIT_DELAY_SECONDS}s before next wave"
             )
-            await asyncio.sleep(INTER_WAVE_RATE_LIMIT_DELAY_SECONDS)
+            await workflow.sleep(timedelta(seconds=INTER_WAVE_RATE_LIMIT_DELAY_SECONDS))
 
         raw = await asyncio.gather(*[_run_one(t) for t in ready], return_exceptions=True)
 
