@@ -6,6 +6,8 @@ Supports fingerprinting (duplicate detection) and similar-task lookup via Qdrant
 """
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
