@@ -50,10 +50,13 @@ def test_same_seed_same_sample():
     buf_a = ReplayBuffer(max_good=100, random_seed=42)
     buf_b = ReplayBuffer(max_good=100, random_seed=42)
 
-    items = [{"code": f"def f{i}(): pass", "reward": float(i)} for i in range(20)]
-    for item in items:
-        buf_a.add_good(item)
-        buf_b.add_good(item)
+    def _sol(i: int) -> BufferedSolution:
+        return BufferedSolution(task_id="T1", episode_id="ep1", iteration=i,
+                                reward=0.9, code=f"def f{i}(): pass")
+
+    for i in range(20):
+        buf_a.add(_sol(i))
+        buf_b.add(_sol(i))
 
     sample_a = buf_a.sample_good(5)
     sample_b = buf_b.sample_good(5)
@@ -65,10 +68,13 @@ def test_different_seed_may_differ():
     buf_a = ReplayBuffer(max_good=100, random_seed=1)
     buf_b = ReplayBuffer(max_good=100, random_seed=99)
 
-    items = [{"code": f"def f{i}(): pass", "reward": float(i)} for i in range(50)]
-    for item in items:
-        buf_a.add_good(item)
-        buf_b.add_good(item)
+    def _sol(i: int) -> BufferedSolution:
+        return BufferedSolution(task_id="T1", episode_id="ep1", iteration=i,
+                                reward=0.9, code=f"def f{i}(): pass")
+
+    for i in range(50):
+        buf_a.add(_sol(i))
+        buf_b.add(_sol(i))
 
     # With 50 items and k=10, probability of identical sample is astronomically low
     sample_a = buf_a.sample_good(10)
