@@ -679,9 +679,7 @@ class ProjectWorkflow:
 
     @workflow.run
     async def run(self, project_name: str, description: str) -> Dict[str, Any]:
-        import time
-
-        task_id = f"{project_name}-{int(time.time())}"
+        task_id = f"{project_name}-{int(workflow.now().timestamp())}"
 
         initial_task = {
             "task_id": task_id,
