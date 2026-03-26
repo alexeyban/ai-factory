@@ -11,7 +11,7 @@ import random
 import pytest
 
 from shared.episode import set_global_seed
-from memory.replay_buffer import ReplayBuffer
+from memory.replay_buffer import ReplayBuffer, BufferedSolution
 from memory.episodic import EpisodeRecord
 from datetime import datetime, timezone
 
