@@ -55,7 +55,7 @@ def test_pm_activity_calls_llm_with_truncated_notes(tmp_path):
     big_response = _make_large_text(40_000)
     captured_prompts: list[str] = []
 
-    def _fake_llm(system: str, user: str) -> str:
+    def _fake_llm(system: str, user: str, **kwargs) -> str:
         captured_prompts.append(user)
         # First two calls are architect + analyst; third is PM plan
         if len(captured_prompts) >= 3:
