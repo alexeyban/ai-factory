@@ -263,7 +263,8 @@ Phase 9  Agent interaction quality: PM design briefing, architect_guidance propa
 | Memory / Skill Engine | ✓ PostgreSQL + Qdrant backed, full test coverage |
 | Benchmarking | ✓ easy/medium/hard/expert datasets, Curriculum, MetricsExporter |
 | Production infra | ✓ Dockerfiles, OTel tracing, Prometheus/Grafana, Kafka topics script |
-| Full e2e pipeline | Not yet re-validated after Phase 9 additions |
+| Phase 9 stability | ✓ compute_code_hash, set_global_seed, loop protection tests |
+| Full e2e pipeline | Not yet re-validated end-to-end |
 
 ## Purpose
 
