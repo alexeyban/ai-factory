@@ -117,24 +117,6 @@ The multi-file dev output change touched the core dev loop. Add a unit test to c
 
 ## Next Phases
 
-### Phase 6 — Self-Modification
-**Plan:** `plans/phase6_self_modification.md`
-- [ ] Skill refactoring agent: rewrite/optimize existing skills using LLM
-- [ ] Skill merging: combine two similar skills into one generalised skill
-- [ ] Skill pruning: automatically deprecate skills with success_rate < threshold
-- [ ] Meta-agent (optional): analyses overall performance and proposes system changes
-
-### Phase 7 — Benchmarking (LeetCode pipeline)
-**Plan:** `plans/phase7_benchmarking.md`
-- [ ] Dataset loader for LeetCode-style tasks (JSON/YAML with test cases)
-- [ ] Curriculum learning: easy → medium → hard progression
-- [ ] Metrics dashboard: success rate, avg reward, skill growth over time
-
-### Phase 8 — Infrastructure (production hardening)
-**Plan:** `plans/phase8_infra.md`
-- [ ] Separate Docker containers for dev agent, qa runner, memory services
-- [ ] OpenTelemetry tracing per episode
-- [ ] Structured log aggregation (per-episode log streams)
 
 ### ~~Phase 6 — Self-Modification~~ ✓ Done (2026-03-24)
 See `plans/phase6_self_modification.md`. SkillOptimizer, meta-agent-worker, skill rewrite/merge/prune.
