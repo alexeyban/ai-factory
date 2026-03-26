@@ -47,8 +47,8 @@ def test_different_seeds_different_sequences():
 
 def test_same_seed_same_sample():
     """Seeded ReplayBuffer returns same samples on repeated calls."""
-    buf_a = ReplayBuffer(capacity=100, random_seed=42)
-    buf_b = ReplayBuffer(capacity=100, random_seed=42)
+    buf_a = ReplayBuffer(max_good=100, random_seed=42)
+    buf_b = ReplayBuffer(max_good=100, random_seed=42)
 
     items = [{"code": f"def f{i}(): pass", "reward": float(i)} for i in range(20)]
     for item in items:
@@ -62,8 +62,8 @@ def test_same_seed_same_sample():
 
 def test_different_seed_may_differ():
     """Different seeds produce different samples (probabilistically)."""
-    buf_a = ReplayBuffer(capacity=100, random_seed=1)
-    buf_b = ReplayBuffer(capacity=100, random_seed=99)
+    buf_a = ReplayBuffer(max_good=100, random_seed=1)
+    buf_b = ReplayBuffer(max_good=100, random_seed=99)
 
     items = [{"code": f"def f{i}(): pass", "reward": float(i)} for i in range(50)]
     for item in items:
