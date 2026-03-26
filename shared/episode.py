@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -81,6 +82,17 @@ def log_episode_event(
             f"Failed to publish episode event to Kafka "
             f"(episode={episode_id}, type={event_type}): {exc}"
         )
+
+
+def set_global_seed(seed: int) -> None:
+    """
+    Set the global random seed for reproducibility.
+
+    Uses Python's random module. For numpy-based code, callers must
+    additionally set np.random.seed(seed) themselves. LLM non-determinism
+    is not controlled here — use temperature=0 in API requests where supported.
+    """
+    random.seed(seed)
 
 
 def episode_event_to_json(

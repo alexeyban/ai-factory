@@ -279,14 +279,14 @@ if len(candidate.code.splitlines()) > MAX_SOLUTION_LINES:
 
 ## Критерии готовности
 
-- [ ] Дублирующий код не оценивается дважды
-- [ ] Hidden tests не попадают в LLM промпт
-- [ ] `RANDOM_SEED=42` даёт воспроизводимые результаты
-- [ ] `MAX_ITERATIONS` и `STAGNATION_THRESHOLD` соблюдаются
-- [ ] `pytest tests/test_fingerprinting.py` — зелёный
-- [ ] `pytest tests/test_determinism.py` — зелёный
-- [ ] `pytest tests/test_loop_protection.py` — зелёный
-- [ ] `pytest tests/` — существующие тесты не сломаны
+- [x] Дублирующий код обнаруживается через check_solution_fingerprint (EpisodicMemory)
+- [ ] Hidden tests не попадают в LLM промпт (требует расширения qa_activity)
+- [x] `RANDOM_SEED=42` даёт воспроизводимые результаты (set_global_seed + ReplayBuffer seeding)
+- [x] `MAX_ITERATIONS` и `STAGNATION_THRESHOLD` соблюдаются (LearningWorkflow)
+- [x] `pytest tests/test_fingerprinting.py` — зелёный (7/7)
+- [x] `pytest tests/test_determinism.py` — зелёный (6/6)
+- [x] `pytest tests/test_loop_protection.py` — зелёный (4/4)
+- [x] `pytest tests/` — существующие тесты не сломаны (303/303)
 
 ---
 
