@@ -69,6 +69,26 @@ class SimilarTask:
 
 
 # ---------------------------------------------------------------------------
+# Fingerprinting helpers
+# ---------------------------------------------------------------------------
+
+def compute_code_hash(code: str) -> str:
+    """
+    Compute a stable SHA-256 fingerprint for a Python code string.
+
+    Normalisation pipeline:
+    1. Try AST-parse + unparse to strip comments and normalise whitespace.
+    2. Fall back to stripped raw text if parsing fails (e.g. syntax errors).
+    """
+    try:
+        tree = ast.parse(code)
+        normalized = ast.unparse(tree)
+    except SyntaxError:
+        normalized = code.strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # EpisodicMemory
 # ---------------------------------------------------------------------------
 
