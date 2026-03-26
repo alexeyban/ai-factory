@@ -246,7 +246,7 @@ Phase 9  Agent interaction quality: PM design briefing, architect_guidance propa
          analyst PM-context, recovery QA root-cause, prompt label fixes, QA attempt tracking
 ```
 
-**Test suite: 286 tests, all passing** (`PYTHONPATH=. pytest tests/`)
+**Test suite: 303 tests, all passing** (`PYTHONPATH=. pytest tests/`)
 
 ## Pipeline Status (2026-03-25)
 
