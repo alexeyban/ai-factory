@@ -136,11 +136,26 @@ The multi-file dev output change touched the core dev loop. Add a unit test to c
 - [ ] OpenTelemetry tracing per episode
 - [ ] Structured log aggregation (per-episode log streams)
 
-### Phase 9 — Anti-Patterns / Stability
-**Plan:** `plans/phase9_stability.md`
-- [ ] Reward hacking protection: hidden test cases withheld from dev agent
-- [ ] Deterministic runs via `RANDOM_SEED` propagation through all RNG sources
-- [ ] Max iteration hard cap + workflow budget guard for `LearningWorkflow`
+### ~~Phase 6 — Self-Modification~~ ✓ Done (2026-03-24)
+See `plans/phase6_self_modification.md`. SkillOptimizer, meta-agent-worker, skill rewrite/merge/prune.
+
+### ~~Phase 7 — Benchmarking~~ ✓ Done (2026-03-24)
+See `plans/phase7_benchmarking.md`. DatasetLoader, Curriculum state machine, MetricsExporter.
+
+### ~~Phase 8 — Infrastructure~~ ✓ Code complete (2026-03-24)
+See `plans/phase8_infra.md`. Dockerfiles, OTel tracing, Prometheus/Grafana, Kafka topics script.
+Runtime (`docker compose up`) not fully validated end-to-end.
+- [ ] Add `asyncpg` to orchestrator Dockerfile — skill extraction currently skipped in e2e due to missing dependency
+
+### ~~Phase 9 — Anti-Patterns / Stability~~ ✓ Done (2026-03-26)
+See `plans/phase9_stability.md`. `compute_code_hash`, `set_global_seed`, loop protection tests (303/303).
+- [ ] Hidden tests in `qa_activity` (Phase 9 Step 3): `hidden_tests` field in `TaskContract` + wiring in `qa_activity` not yet implemented
+
+### Option B — Dev/QA loop at workflow level (deferred)
+Move dev→QA self-healing loop from inside `_execute_task_impl()` to workflow-level code.
+Benefit: dev and QA each appear as separate Temporal activities in the UI (currently invisible).
+This mirrors `LearningWorkflow` pattern. Cost: significant refactor of `_dispatch_tasks` + `process_single_task`.
+- [ ] Design the refactor — see plan notes for approach
 
 ---
 
