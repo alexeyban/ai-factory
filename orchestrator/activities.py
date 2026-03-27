@@ -1149,6 +1149,66 @@ def _run_pytest(
     )
 
 
+def _run_hidden_tests(
+    task: Dict[str, Any],
+    repo_path: Path,
+    python_path: Path,
+    timeout: int = 60,
+) -> Dict[str, Any]:
+    """Run hidden test cases from task["hidden_tests"] and return a score.
+
+    Hidden tests are inline Python strings.  They are written to a temp directory
+    (NOT in repo_path), executed against the installed project, then deleted.
+    Results are never surfaced to the dev agent — only the score is returned.
+
+    Returns {"ran": bool, "score": float, "passed": int, "total": int}.
+    """
+    hidden_tests: List[str] = task.get("hidden_tests", [])
+    if not hidden_tests:
+        return {"ran": False, "score": 1.0, "passed": 0, "total": 0}
+
+    import tempfile as _tempfile
+    tmp_dir = Path(_tempfile.mkdtemp(prefix="hidden_tests_"))
+    try:
+        test_files: List[str] = []
+        for i, test_code in enumerate(hidden_tests):
+            tf = tmp_dir / f"hidden_test_{i}.py"
+            tf.write_text(test_code)
+            test_files.append(str(tf))
+
+        proc = subprocess.run(
+            [str(python_path), "-m", "pytest", *test_files, "-v", "--tb=no", "-q"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=str(repo_path),
+        )
+        # Parse pytest summary line: "X passed, Y failed in Zs"
+        passed = failed = 0
+        for line in proc.stdout.splitlines():
+            m = re.search(r"(\d+) passed", line)
+            if m:
+                passed = int(m.group(1))
+            m = re.search(r"(\d+) failed", line)
+            if m:
+                failed = int(m.group(1))
+        total = passed + failed or len(hidden_tests)
+        score = passed / total if total > 0 else 0.0
+        LOGGER.info(
+            "[qa] Hidden tests: %d/%d passed (score=%.2f)", passed, total, score
+        )
+        return {"ran": True, "score": score, "passed": passed, "total": total}
+    except subprocess.TimeoutExpired:
+        LOGGER.warning("[qa] Hidden tests timed out")
+        return {"ran": True, "score": 0.0, "passed": 0, "total": len(hidden_tests)}
+    except Exception as exc:
+        LOGGER.warning("[qa] Hidden tests failed to run: %s", exc)
+        return {"ran": False, "score": 1.0, "passed": 0, "total": 0}
+    finally:
+        import shutil as _shutil
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def _run_qa_for_artifact(
     task: Dict[str, Any],
     task_id: str,
