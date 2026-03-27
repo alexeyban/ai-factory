@@ -1332,7 +1332,6 @@ def _run_qa_for_artifact(
             status = "success" if pytest_result.ok else "fail"
 
         # --- Hidden tests (Phase 9): run only when public tests pass ---
-        hidden_result: Dict[str, Any] = {"ran": False, "score": 1.0, "passed": 0, "total": 0}
         if status == "success" and task.get("hidden_tests"):
             hidden_result = _run_hidden_tests(task, repo_path, python_path)
 
