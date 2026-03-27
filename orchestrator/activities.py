@@ -495,6 +495,7 @@ def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
 
     Returns list of (relative_path, content) tuples.
     If no FILE headers are found, returns an empty list (caller uses single-file path).
+    Skips entries where content is empty after stripping (LLM truncation guard).
     """
     pattern = re.compile(r"^=== FILE: (.+?) ===\s*$", re.MULTILINE)
     matches = list(pattern.finditer(code))
@@ -505,9 +506,12 @@ def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
         path = match.group(1).strip()
         start = match.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(code)
-        content = code[start:end].strip("\n")
-        # Strip trailing code fence if present
-        content = re.sub(r"```\s*$", "", content).strip()
+        raw = code[start:end].strip("\n")
+        # Strip both opening and closing markdown code fences (LLM often wraps in ```python blocks)
+        content = _strip_code_fences(raw)
+        if not content.strip():
+            LOGGER.warning("[dev] _parse_multi_file_output: empty content for %s — skipping", path)
+            continue
         files.append((path, content))
     return files
 
