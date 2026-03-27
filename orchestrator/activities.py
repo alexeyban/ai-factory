@@ -2361,6 +2361,12 @@ async def qa_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             candidate_result,
             candidate.get("code", ""),
         )
+        # --- Phase 9: apply hidden test score to reward (hidden tests = 30% weight) ---
+        if candidate_result.get("hidden_tests_ran"):
+            hidden_score = candidate_result.get("hidden_score", 1.0)
+            candidate_result["reward"] = candidate_result.get("reward", 0.0) * (0.7 + 0.3 * hidden_score)
+            LOGGER.info("[qa] Reward adjusted for hidden tests: score=%.2f → final_reward=%.4f",
+                        hidden_score, candidate_result["reward"])
         candidate_reward = candidate_result.get("reward", 0.0)
 
         if result is None or candidate_reward > best_reward:
