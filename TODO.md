@@ -90,12 +90,11 @@ Self-healing loop activated on T004 and T008. Dev agent writes to correct target
 - [ ] GITHUB_TOKEN for PR auto-merge — currently falls back to local merge; configure in `.env`/docker-compose
 - [x] Confirm dev agent writes to correct target files
 
-### T005 zero-byte test file bug
-During e2e run, task T005 ("comprehensive tests") wrote a 0-byte second file. The dev agent
-omits content after the `=== FILE: path ===` header for the second file in multi-file output.
-- [ ] Reproduce with a mock-LLM test that returns two-file output
-- [ ] Investigate `_parse_multi_file_output` in `orchestrator/activities.py`
-- [ ] Fix: ensure second (and subsequent) file blocks are correctly extracted and written
+### ~~T005 zero-byte test file bug~~ ✓ Fixed (2026-03-27)
+`_parse_multi_file_output` stripped trailing code fences but not opening ` ```python\n ` fences.
+Empty code blocks (LLM truncation) were silently written as 0-byte files.
+**Fix**: `orchestrator/activities.py` — strip opening+closing fences inline via regex; skip entries
+with empty content after stripping (log warning). 11 regression tests in `tests/test_parse_multi_file_output.py`.
 
 ### QA isolation test completion
 `scripts/debug_qa.py` was created but not yet successfully run end-to-end.
