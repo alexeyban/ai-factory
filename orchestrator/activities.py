@@ -1412,6 +1412,8 @@ def _run_qa_for_artifact(
         "qa_report_json": str(qa_json_path),
         "project_repo_path": str(repo_path),
         "plan": plan_artifacts,
+        "hidden_score": hidden_result.get("score", 1.0),
+        "hidden_tests_ran": hidden_result.get("ran", False),
     }
 
 
