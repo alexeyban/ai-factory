@@ -1963,6 +1963,7 @@ def _generate_single_candidate(
             fp = repo_path / rel_path
             fp.parent.mkdir(parents=True, exist_ok=True)
             fp.write_text(content)
+            LOGGER.info("[dev] Candidate %d/%s written to %s (%d bytes)", candidate_idx, strategy, fp, len(content))
             written_paths.append(fp)
         file_path = written_paths[0]
         code = multi[0][1]
@@ -1971,11 +1972,10 @@ def _generate_single_candidate(
         file_path = _task_module_path(task, repo_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(code)
-
-    LOGGER.info(
-        "[dev] Candidate %d/%s written to %s (%d bytes)",
-        candidate_idx, strategy, file_path, len(code),
-    )
+        LOGGER.info(
+            "[dev] Candidate %d/%s written to %s (%d bytes)",
+            candidate_idx, strategy, file_path, len(code),
+        )
 
     docs_dir = repo_path / "documents" / "pm"
     task_doc = _next_version_path(
