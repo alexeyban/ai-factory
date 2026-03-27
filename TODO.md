@@ -126,7 +126,7 @@ See `plans/phase7_benchmarking.md`. DatasetLoader, Curriculum state machine, Met
 ### ~~Phase 8 — Infrastructure~~ ✓ Code complete (2026-03-24)
 See `plans/phase8_infra.md`. Dockerfiles, OTel tracing, Prometheus/Grafana, Kafka topics script.
 Runtime (`docker compose up`) not fully validated end-to-end.
-- [ ] Add `asyncpg` to orchestrator Dockerfile — skill extraction currently skipped in e2e due to missing dependency
+- [x] Add `asyncpg` to orchestrator Dockerfile — switched to `requirements.txt` install (2026-03-27)
 
 ### ~~Phase 9 — Anti-Patterns / Stability~~ ✓ Done (2026-03-26)
 See `plans/phase9_stability.md`. `compute_code_hash`, `set_global_seed`, loop protection tests (303/303).
