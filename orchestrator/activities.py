@@ -1238,6 +1238,7 @@ def _run_qa_for_artifact(
         ),
     )
 
+    hidden_result: Dict[str, Any] = {"ran": False, "score": 1.0, "passed": 0, "total": 0}
     artifact_path = Path(artifact) if artifact else None
     if not artifact or not artifact_path or not artifact_path.exists():
         summary = {
