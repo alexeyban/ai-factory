@@ -992,10 +992,12 @@ def _build_dev_prompt(
     else:
         strategy_instruction = "Strategy: EXPLOIT — leverage the available skills above to compose your solution."
 
+    # Strip hidden_tests so dev agent never sees them
+    task_for_prompt = {k: v for k, v in task.items() if k != "hidden_tests"}
     return render_prompt(
         DEV_USER_PROMPT,
         task_description=description,
-        task_context=json.dumps(task, indent=2, ensure_ascii=True),
+        task_context=json.dumps(task_for_prompt, indent=2, ensure_ascii=True),
         target_files=target_files_text,
         attempt_number=attempt_number,
         qa_feedback=qa_feedback_text,
