@@ -507,9 +507,10 @@ def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
         start = match.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(code)
         raw = code[start:end].strip("\n")
-        # Strip both opening and closing markdown code fences (LLM often wraps in ```python blocks)
-        content = _strip_code_fences(raw)
-        if not content.strip():
+        # Strip opening code fence (```python / ```py / ```) and closing fence
+        content = re.sub(r"^```(?:python|py)?\n", "", raw, count=1)
+        content = re.sub(r"\n?```\s*$", "", content).strip()
+        if not content:
             LOGGER.warning("[dev] _parse_multi_file_output: empty content for %s — skipping", path)
             continue
         files.append((path, content))
