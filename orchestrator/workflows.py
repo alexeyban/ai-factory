@@ -319,7 +319,7 @@ async def _dispatch_tasks(
 
             completed[task_id] = result
             remaining.remove(task)
-        await asyncio.sleep(0)  # yield event loop between waves to prevent TMPRL1101
+            await asyncio.sleep(0)  # yield inside loop to prevent TMPRL1101 deadlock
 
     return list(completed.values())
 
