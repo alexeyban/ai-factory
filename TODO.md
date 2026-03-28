@@ -130,7 +130,7 @@ Runtime (`docker compose up`) not fully validated end-to-end.
 
 ### ~~Phase 9 — Anti-Patterns / Stability~~ ✓ Done (2026-03-26)
 See `plans/phase9_stability.md`. `compute_code_hash`, `set_global_seed`, loop protection tests (303/303).
-- [ ] Hidden tests in `qa_activity` (Phase 9 Step 3): `hidden_tests` field in `TaskContract` + wiring in `qa_activity` not yet implemented
+- [x] Hidden tests in `qa_activity` (Phase 9 Step 3): `_run_hidden_tests()` implemented, wired into `qa_activity` and `_build_dev_prompt` (2026-03-28)
 
 ### Option B — Dev/QA loop at workflow level (deferred)
 Move dev→QA self-healing loop from inside `_execute_task_impl()` to workflow-level code.
