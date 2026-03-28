@@ -1782,7 +1782,9 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         len(normalized_tasks),
     )
 
-    return _wrap_activity_result(workflow_id, "architect", result, start_time)
+    recovery_cycle = task.get("recovery_cycle")
+    stage = f"architect_recovery_{recovery_cycle}" if recovery_cycle else "architect"
+    return _wrap_activity_result(workflow_id, stage, result, start_time)
 
 
 @activity.defn
