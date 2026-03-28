@@ -87,7 +87,7 @@ Calclib workflow ran successfully: 5 waves, 7/8 tasks passed. PM recovery cycle 
 Self-healing loop activated on T004 and T008. Dev agent writes to correct target files confirmed.
 - [x] Run `scripts/run_e2e_test.py` against `https://github.com/alexeyban/calclib`
 - [x] Confirm PM → architect → decomposer → dev → QA → analyst pipeline executes
-- [ ] GITHUB_TOKEN for PR auto-merge — currently falls back to local merge; configure in `.env`/docker-compose
+- [x] GITHUB_TOKEN for PR auto-merge — added to `.env` via `gh auth token` (2026-03-28)
 - [x] Confirm dev agent writes to correct target files
 
 ### ~~T005 zero-byte test file bug~~ ✓ Fixed (2026-03-27)
