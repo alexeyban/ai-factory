@@ -90,6 +90,13 @@ Self-healing loop activated on T004 and T008. Dev agent writes to correct target
 - [x] GITHUB_TOKEN for PR auto-merge — added to `.env` via `gh auth token` (2026-03-28)
 - [x] Confirm dev agent writes to correct target files
 
+### ~~Temporal nondeterminism `[TMPRL1100]` on recovery cycle~~ ✓ Fixed (2026-03-28)
+`architect_activity` hardcoded stage `"architect"` for both main and recovery calls. Recovery architect
+overwrote main architect's context file; `_load_result_from_file` read stale data on replay → different
+task list → nondeterminism.
+**Fix**: `architect_activity` now uses `f"architect_recovery_{recovery_cycle}"` stage when
+`task.get("recovery_cycle")` is set, keeping main architect file (`output_architect.json`) immutable.
+
 ### ~~T005 zero-byte test file bug~~ ✓ Fixed (2026-03-27)
 `_parse_multi_file_output` stripped trailing code fences but not opening ` ```python\n ` fences.
 Empty code blocks (LLM truncation) were silently written as 0-byte files.
