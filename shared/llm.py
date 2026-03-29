@@ -402,6 +402,27 @@ def _request_with_fallback(
                 _provider_cooldown_remaining(fallback_provider),
             )
             continue
+        if fallback_provider == "claude":
+            try:
+                system_msg = next(
+                    (m["content"] for m in messages if m["role"] == "system"), ""
+                )
+                user_msg = next(
+                    (m["content"] for m in messages if m["role"] == "user"), ""
+                )
+                result = _call_claude_subprocess(
+                    system_msg,
+                    user_msg,
+                    _default_model_for_provider("claude"),
+                    timeout=timeout or 120.0,
+                )
+                _record_provider_request("claude")
+                return result
+            except Exception as exc:
+                LOGGER.warning("claude subprocess failed: %s", exc)
+                last_error = exc
+                continue
+
         config = _config_for_provider(
             fallback_provider,
             model=model,
