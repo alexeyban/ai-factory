@@ -338,6 +338,46 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return isinstance(exc, APIStatusError) and exc.status_code == 429
 
 
+def _call_claude_subprocess(
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    timeout: float = 120.0,
+) -> str:
+    """Invoke claude CLI as subprocess — uses ~/.claude/ subscription credentials or ANTHROPIC_API_KEY."""
+    import subprocess
+
+    cmd = [
+        "claude",
+        "--bare",
+        "-p", user_prompt,
+        "--output-format", "json",
+    ]
+    if system_prompt:
+        cmd += ["--system-prompt", system_prompt]
+    if model:
+        cmd += ["--model", model]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=os.environ.copy(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"claude CLI timed out after {timeout}s") from exc
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"claude CLI exited {proc.returncode}: {proc.stderr[:500]}"
+        )
+
+    data = json.loads(proc.stdout)
+    return data.get("result") or data.get("text") or str(data)
+
+
 def _request_with_fallback(
     *,
     messages: list[dict[str, str]],
