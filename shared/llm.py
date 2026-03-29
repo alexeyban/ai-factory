@@ -198,6 +198,9 @@ def _provider_has_credentials(provider: str) -> bool:
             or os.getenv("OLLANA_API_KEY")
             or os.getenv("OLLAMA_API_KEY")
         )
+    if provider == "claude":
+        import shutil
+        return bool(shutil.which("claude") or os.getenv("ANTHROPIC_API_KEY"))
     return bool(_default_api_key(provider))
 
 
