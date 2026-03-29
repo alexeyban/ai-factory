@@ -178,6 +178,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
+      - ${HOME}/.claude:/root/.claude:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
