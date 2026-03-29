@@ -347,14 +347,16 @@ def _call_claude_subprocess(
     """Invoke claude CLI as subprocess — uses ~/.claude/ subscription credentials or ANTHROPIC_API_KEY."""
     import subprocess
 
+    # Note: do NOT use --bare; it disables OAuth/subscription auth (only ANTHROPIC_API_KEY works with --bare).
+    # --no-session-persistence avoids polluting the session history.
     cmd = [
         "claude",
-        "--bare",
         "-p", user_prompt,
         "--output-format", "json",
+        "--no-session-persistence",
     ]
     if system_prompt:
-        cmd += ["--system-prompt", system_prompt]
+        cmd += ["--append-system-prompt", system_prompt]
     if model:
         cmd += ["--model", model]
 
