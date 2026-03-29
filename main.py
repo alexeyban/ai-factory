@@ -40,24 +40,22 @@ async def main():
             return
         print("FORCE_START=true — proceeding despite concurrent workflows.")
 
-    description = f"""Develop and enhance the Reversi AlphaZero AI project: {GITHUB_PROJECT_URL}
+    readme_path = os.path.join(os.path.dirname(__file__), "workspace/projects/reversi_ai/README.md")
+    try:
+        with open(readme_path, encoding="utf-8") as f:
+            readme_content = f.read()
+    except FileNotFoundError:
+        readme_content = ""
 
-The project implements a self-learning Reversi (Othello) AI using AlphaZero-style reinforcement learning with Monte Carlo Tree Search (MCTS).
+    description = f"""Implement the Reversi AlphaZero AI project at: {GITHUB_PROJECT_URL}
 
-Current capabilities:
-- Neural network-based policy and value networks
-- Self-play training pipeline
-- MCTS for game playing
-- GPU support for training
+This is a self-learning Reversi (Othello) AI using AlphaZero-style reinforcement learning with Monte Carlo Tree Search (MCTS). Implement ALL 10 tasks from the specification below. Each task maps to a Python module in the `reversi/` package.
 
-Goals:
-- Improve the AI's strength and playing quality
-- Add new features (evaluation, analysis tools, GUI)
-- Optimize training speed and resource usage
-- Fix bugs and improve code quality
-- Add tests and documentation
+IMPORTANT: Clone {GITHUB_PROJECT_URL} first, then implement all code there. Commit and push each module as it is completed.
 
-IMPORTANT: All development work should be done in the {GITHUB_PROJECT_URL} repository. Clone it first, then make all changes there."""
+Full task specification:
+
+{readme_content}"""
 
     await start_project(
         client,
