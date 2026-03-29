@@ -178,6 +178,7 @@ def _default_model_for_provider(provider: str) -> str:
         "ollama": os.getenv("OLLAMA_MODEL")
         or os.getenv("OLLANA_MODEL")
         or "llama4:scout",
+        "claude": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
     }
     return defaults.get(provider, os.getenv("LLM_MODEL", "gpt-4.1"))
 
