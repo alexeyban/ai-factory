@@ -88,7 +88,7 @@ Each role has prompt templates in `shared/prompts/<role>/`.
 - **Architect** — versioned architecture docs (`.md` + `.drawio`) and task breakdown with `assigned_agent`
 - **Decomposer** — splits tasks whose prompt exceeds `TASK_DECOMPOSITION_TOKEN_LIMIT` (default 8000 tokens)
 - **Dev** — implements in a task branch; outputs one or more files using `=== FILE: path ===` format
-- **QA** — runs syntax check (Python-only; non-.py files skipped), lint (ruff), typecheck (mypy), pytest+coverage, LLM summary; merges to main on pass
+- **QA** — runs syntax check (Python-only; non-.py files skipped), lint (ruff), typecheck (mypy), pytest+coverage, LLM summary; merges to main on pass; `pip install -r requirements.txt` failures are logged and non-fatal so pytest can still report useful errors
 - **Analyst** — records final state, risks, recommendations
 
 ## Task Contract
