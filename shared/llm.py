@@ -192,7 +192,6 @@ def _provider_has_credentials(provider: str) -> bool:
         return bool(
             os.getenv("OLLAMA_BASE_URL")
             or os.getenv("OLLAMA_MODEL")
-            or os.getenv("OLLANA_API_KEY")
             or os.getenv("OLLAMA_API_KEY")
         )
     if provider == "claude":
