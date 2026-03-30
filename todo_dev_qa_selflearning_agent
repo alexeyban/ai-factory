@@ -296,3 +296,51 @@ GLM-5 оборачивает JSON в markdown code fences, обрезает от
 * [ ] `docker compose up -d && EXTRA_TASK_QUEUES=... python -m orchestrator.worker`
 * [ ] `python scripts/e2e_simple.py` с GLM-5
 * Ожидаемый результат: хотя бы 1 из 3 задач завершается `status="complete"`
+
+---
+
+# 🔒 PHASE 11 — Security & Infrastructure Hardening (2026-03-30)
+
+## 🎯 Цель
+Устранить security уязвимости, найденные при аудите, и устранить системные баги QA-пайплайна,
+обнаруженные на прогоне `reversi-alpha-zero`.
+
+## TODO
+
+### 11.1 Path traversal в LLM-генерированных путях  [x]
+* [x] `orchestrator/activities.py`: `_is_safe_relative_path()` + `_SAFE_PATH_RE` regex
+* [x] Отклонять: `..`, абсолютные пути, shell-спец символы
+* [x] Bounds check через `.resolve()` при записи файлов
+* [x] Тесты: `test_rejects_path_traversal_dotdot`, `test_rejects_absolute_path`, `test_rejects_path_with_special_chars`, `test_allows_nested_safe_path`
+
+### 11.2 SSH MITM — StrictHostKeyChecking  [x]
+* [x] `shared/git.py`: `_GITHUB_KNOWN_HOSTS` + `_ensure_github_known_hosts()` — вшиты реальные ключи GitHub (ed25519, ecdsa, RSA)
+* [x] `docker-compose.yml`: все воркеры переведены с `StrictHostKeyChecking=no` → `StrictHostKeyChecking=yes`
+
+### 11.3 GitHub token в HTTPS URL  [x]
+* [x] `shared/git.py`: `_github_https_remote()` теперь возвращает URL без токена
+* [x] Новая функция `_git_env_with_token()`: токен передаётся через `GIT_CONFIG_*` env vars как `Authorization: Basic base64(:{token})`
+* [x] Токен никогда не попадает в remote URL, git config файлы, логи, или `/proc` cmdline
+
+### 11.4 Grafana admin password  [x]
+* [x] `docker-compose.yml`: `GF_SECURITY_ADMIN_PASSWORD: admin` → `${GRAFANA_ADMIN_PASSWORD:-changeme_grafana}`
+* [x] `.env`: добавлен `GRAFANA_ADMIN_PASSWORD=changeme_grafana`
+
+### 11.5 Claude Code CLI как LLM провайдер  [x]
+* [x] `shared/llm.py`: добавлен провайдер `claude` (subprocess: `claude -p ... --output-format json`)
+* [x] Работает с существующей подпиской Claude Code через `~/.claude/` (без ANTHROPIC_API_KEY)
+* [x] `orchestrator/Dockerfile`: установка Claude CLI + `build-essential librdkafka-dev`
+* [x] `docker-compose.yml`: volume-mount `~/.claude:/root/.claude:ro` во все воркеры
+* [x] `401` добавлен в `FALLBACK_STATUS_CODES` (opencode CreditsError теперь фоллбэчит на следующий провайдер)
+
+### 11.6 Temporal sandbox compatibility  [x]
+* [x] `orchestrator/workflows.py`: decomposer imports обёрнуты в `workflow.unsafe.imports_passed_through()`
+* Исправляет: `RestrictedWorkflowAccessError` при старте воркера (decomposer → llm → openai → httpx)
+
+### 11.7 QA pip install — check=False  [x]
+* [x] `orchestrator/activities.py`: `_install_project_dependencies()` — `check=True` → `check=False`
+* [x] При ошибке логируется warning, QA продолжает работу
+* Исправляет: CalledProcessError при pip install обрывал весь QA activity без feedback
+
+### 11.8 Dev prompt — guardrails против типичных LLM-багов  [x]
+* [x] `shared/prompts/dev/user.txt`: ARTIFACT LOCK (тип файла неизменен), DEPENDENCY RULE (auto-requirements.txt), COMPLETENESS REQUIRED (no truncation), TEST FILE FIXES (может фиксить тест если QA говорит о баге в тесте)
