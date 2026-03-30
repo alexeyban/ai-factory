@@ -237,4 +237,8 @@ Removed `version: "3.9"` from `docker-compose.yml`.
 Model aliases added to `shared/llm.py`. Cannot fully validate — opencode free tier is
 consistently rate-limited during testing sessions. Falls back to OpenAI automatically.
 - [ ] Retry MiniMax isolation test when opencode quota resets (daily/hourly limit)
-- [ ] Consider adding `OPENCODE_MODEL` env var to force a specific model per run
+- [x] `OPENCODE_MODEL` env var added to `.env` and documented in README
+
+### ~~`confluent-kafka` Docker build failure~~ ✓ Fixed (2026-03-30)
+`orchestrator/Dockerfile` was missing C build toolchain required by `confluent-kafka`.
+**Fix**: added `build-essential librdkafka-dev` to apt-get install.
