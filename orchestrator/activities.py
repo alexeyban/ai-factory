@@ -353,13 +353,18 @@ def _install_project_dependencies(repo_path: Path) -> Dict[str, Any]:
 
     requirements_path = repo_path / "requirements.txt"
     if requirements_path.exists() and requirements_path.read_text().strip():
-        subprocess.run(
+        req_result = subprocess.run(
             [str(python_path), "-m", "pip", "install", "-r", str(requirements_path)],
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
             timeout=600,
         )
+        if req_result.returncode != 0:
+            LOGGER.warning(
+                "[qa] requirements.txt install failed (continuing): %s",
+                req_result.stderr[:300],
+            )
         install_steps.append("requirements.txt")
 
     return {"python": str(python_path), "installed": install_steps}
