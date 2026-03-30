@@ -25,7 +25,7 @@ def test_estimate_tokens_uses_rough_char_heuristic() -> None:
 
 
 def test_github_https_remote_converts_ssh_url() -> None:
-    assert (
-        _github_https_remote("git@github.com:owner/repo.git", "TOKEN")
-        == "https://TOKEN@github.com/owner/repo.git"
-    )
+    # Token must NOT appear in the returned URL (passed via Authorization header instead)
+    result = _github_https_remote("git@github.com:owner/repo.git")
+    assert result == "https://github.com/owner/repo.git"
+    assert "TOKEN" not in (result or "")
