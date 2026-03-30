@@ -103,6 +103,33 @@ Empty code blocks (LLM truncation) were silently written as 0-byte files.
 **Fix**: `orchestrator/activities.py` — strip opening+closing fences inline via regex; skip entries
 with empty content after stripping (log warning). 11 regression tests in `tests/test_parse_multi_file_output.py`.
 
+### ~~Security audit fixes~~ ✓ Done (2026-03-30)
+Full security audit performed; 4 issues found and fixed:
+- **Path traversal**: `_parse_multi_file_output` rejects `..`, absolute paths, shell-special chars; write sites add `.resolve()` bounds check. 4 regression tests added.
+- **SSH MITM**: `shared/git.py` pre-populates `~/.ssh/known_hosts` with GitHub's real public keys; all containers use `StrictHostKeyChecking=yes`.
+- **GitHub token in HTTPS URLs**: `push_branch()` HTTPS fallback now injects token via `GIT_CONFIG_*` env var as `Authorization: Basic` header — token never appears in remote URL, error messages, or process listings.
+- **Grafana password**: parameterized via `GRAFANA_ADMIN_PASSWORD` env var (was hardcoded `admin`).
+
+### ~~QA pipeline systemic failures (reversi-alpha-zero run)~~ ✓ Fixed (2026-03-30)
+Analysis of all 10 failed tasks found 6 root-cause bugs:
+- **Syntax check on non-.py files**: `shared/tools.py` `syntax_check()` now returns `ok=True` immediately for non-`.py` files. Test: `test_syntax_check_skips_non_py_files`.
+- **pip install crash**: `_install_project_dependencies()` changed from `check=True` → `check=False`; logs warning and continues so pytest can report useful `ModuleNotFoundError`.
+- **Dev artifact drift**: dev prompt `user.txt` now has ARTIFACT LOCK (primary file type immutable across fix attempts).
+- **Missing deps in requirements.txt**: DEPENDENCY RULE added to dev prompt (write `requirements.txt` alongside implementation when using external libs).
+- **LLM truncation**: COMPLETENESS REQUIRED added to dev prompt (all brackets must be closed; no mid-function truncation).
+- **Test file bugs unresolvable**: TEST FILE FIXES section added to dev prompt (dev may also write fixed test file if QA explicitly reports a test bug).
+
+### ~~Claude Code CLI as LLM provider~~ ✓ Done (2026-03-30)
+`shared/llm.py`: added `claude` provider using `claude -p ... --output-format json --no-session-persistence`.
+Works with Claude Code subscription credentials from `~/.claude/` — no `ANTHROPIC_API_KEY` needed.
+`orchestrator/Dockerfile`: Claude CLI installed; `build-essential` + `librdkafka-dev` added for confluent-kafka build.
+`docker-compose.yml`: `~/.claude:/root/.claude:ro` volume-mounted in all 6 worker containers.
+`401` added to `FALLBACK_STATUS_CODES` so opencode `CreditsError` triggers fallback to next provider.
+
+### ~~Temporal sandbox error on worker startup~~ ✓ Fixed (2026-03-30)
+`orchestrator/workflows.py`: decomposer agent imports were at module level, transitively pulling in `httpx` → `urllib.request.Request` inside Temporal's sandbox → `RestrictedWorkflowAccessError`.
+**Fix**: wrapped decomposer imports in `with workflow.unsafe.imports_passed_through():`.
+
 ### QA isolation test completion
 `scripts/debug_qa.py` was created but not yet successfully run end-to-end.
 - [ ] Run `debug_qa.py` against calclib artifact
