@@ -152,3 +152,47 @@ def test_header_with_trailing_spaces():
     result = _parse_multi_file_output(raw)
     assert len(result) == 1
     assert result[0][0] == "calc.py"
+
+
+# ---------------------------------------------------------------------------
+# Security: path traversal rejection
+# ---------------------------------------------------------------------------
+
+def test_rejects_path_traversal_dotdot():
+    """LLM-generated paths with .. must be silently dropped."""
+    raw = (
+        "=== FILE: ../../etc/passwd ===\nmalicious content\n"
+        "=== FILE: safe.py ===\ndef foo(): pass\n"
+    )
+    result = _parse_multi_file_output(raw)
+    paths = [r[0] for r in result]
+    assert "../../etc/passwd" not in paths
+    assert "safe.py" in paths
+
+
+def test_rejects_absolute_path():
+    """Absolute paths must be rejected."""
+    raw = "=== FILE: /etc/shadow ===\nmalicious\n"
+    result = _parse_multi_file_output(raw)
+    assert result == []
+
+
+def test_rejects_path_with_special_chars():
+    """Paths with shell-special characters must be rejected."""
+    raw = "=== FILE: foo;rm -rf / ===\nbad\n"
+    result = _parse_multi_file_output(raw)
+    assert result == []
+
+
+def test_allows_nested_safe_path():
+    """Legitimate nested paths like reversi/engine.py or tests/test_foo.py are allowed."""
+    raw = (
+        "=== FILE: reversi/engine.py ===\ndef get_board(): pass\n"
+        "=== FILE: tests/test_engine.py ===\ndef test_it(): pass\n"
+        "=== FILE: requirements.txt ===\nnumpy>=1.24.0\n"
+    )
+    result = _parse_multi_file_output(raw)
+    paths = [r[0] for r in result]
+    assert "reversi/engine.py" in paths
+    assert "tests/test_engine.py" in paths
+    assert "requirements.txt" in paths
