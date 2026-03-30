@@ -38,7 +38,14 @@ def syntax_check(file_path: Path) -> ToolResult:
 
     data = {errors: [{line, col, message}], summary: str}
     ok=False means the file has syntax errors; QA should not run pytest.
+    Non-.py files (e.g. requirements.txt, .md) are skipped with ok=True.
     """
+    if file_path.suffix != ".py":
+        return ToolResult(
+            ok=True,
+            output=f"syntax check skipped (not a .py file: {file_path.suffix})",
+            data={"errors": [], "summary": "Skipped — not a Python file."},
+        )
     try:
         source = file_path.read_text(encoding="utf-8")
     except OSError as exc:
