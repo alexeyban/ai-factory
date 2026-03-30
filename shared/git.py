@@ -412,7 +412,8 @@ def create_and_merge_github_pr(
     return {"ok": True, "pr_url": pr_url, "merge_commit": merge_sha, "auto_merge": False, "error": None}
 
 
-def _github_https_remote(remote_url: str, token: str) -> str | None:
+def _github_https_remote(remote_url: str) -> str | None:
+    """Convert a git@github.com or ssh:// URL to https://github.com/ (no token in URL)."""
     if "github.com" not in remote_url:
         return None
 
@@ -422,10 +423,28 @@ def _github_https_remote(remote_url: str, token: str) -> str | None:
     elif https_url.startswith("ssh://git@github.com/"):
         https_url = https_url.replace("ssh://git@github.com/", "https://github.com/")
 
+    # Strip any embedded token (https://token@github.com → https://github.com)
+    if https_url.startswith("https://") and "@github.com" in https_url:
+        https_url = "https://github.com/" + https_url.split("@github.com/", 1)[1]
+
     if https_url.startswith("https://github.com/"):
-        return https_url.replace("https://github.com/", f"https://{token}@github.com/")
+        return https_url
 
     return None
+
+
+def _git_env_with_token(token: str) -> dict:
+    """Return a git env dict that injects the GitHub token via Authorization header.
+
+    Uses GIT_CONFIG_* env vars (git ≥ 2.26) so the token never appears in
+    the remote URL, git config files, process listings, or error messages.
+    """
+    auth = base64.b64encode(f":{token}".encode()).decode()
+    env = os.environ.copy()
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "http.extraheader"
+    env["GIT_CONFIG_VALUE_0"] = f"Authorization: Basic {auth}"
+    return env
 
 
 def push_branch(
