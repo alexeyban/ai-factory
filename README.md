@@ -250,7 +250,7 @@ Phase 9  Agent interaction quality: PM design briefing, architect_guidance propa
 
 **Test suite: 325 tests, all passing** (`PYTHONPATH=. pytest tests/`)
 
-## Pipeline Status (2026-03-25)
+## Pipeline Status (2026-03-30)
 
 | Component | Status |
 |-----------|--------|
@@ -258,15 +258,20 @@ Phase 9  Agent interaction quality: PM design briefing, architect_guidance propa
 | Architect activity | ✓ architect_guidance propagated to every dev task's input.context |
 | Decomposer activity | ✓ All subtasks have type + title + assigned_agent |
 | Dev activity | ✓ Multi-file output, multi-candidate, skill-aware prompting |
+| Dev prompt | ✓ Artifact lock (primary file type immutable), dependency rule (auto-requirements.txt), no-truncation guard, test-file fix allowance |
 | QA activity | ✓ Reward, regression detection, Kafka publishing, attempt_number tracking |
+| QA stability | ✓ Non-.py files skip syntax check; pip failures non-fatal (check=False) |
 | Analyst activity | ✓ Receives PM project_goal, delivery_summary, analyst_guidance |
 | Recovery cycle | ✓ failure_summary includes qa_root_cause + qa_fix_suggestion per task |
 | LearningWorkflow | ✓ Stagnation detection, perfect-score stop, policy update |
 | Memory / Skill Engine | ✓ PostgreSQL + Qdrant backed, full test coverage |
 | Benchmarking | ✓ easy/medium/hard/expert datasets, Curriculum, MetricsExporter |
 | Production infra | ✓ Dockerfiles, OTel tracing, Prometheus/Grafana, Kafka topics script |
+| Claude CLI provider | ✓ Subscription-based Claude as LLM fallback; CLI installed in worker images |
+| Temporal sandbox | ✓ Decomposer imports wrapped in unsafe.imports_passed_through() |
+| Security | ✓ Path traversal rejection, SSH StrictHostKeyChecking + known_hosts, token-free HTTPS push via Authorization header, parameterized Grafana password |
 | Phase 9 stability | ✓ compute_code_hash, set_global_seed, loop protection tests |
-| Full e2e pipeline | Not yet re-validated end-to-end |
+| Full e2e pipeline | Validated on reversi-alpha-zero; QA systemic failures resolved |
 
 ## Purpose
 
