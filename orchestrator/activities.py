@@ -1080,12 +1080,18 @@ def _generate_dev_artifact(
     multi = _parse_multi_file_output(raw_output)
     if multi:
         written_paths = []
+        repo_resolved = repo_path.resolve()
         for rel_path, content in multi:
-            fp = repo_path / rel_path
+            fp = (repo_path / rel_path).resolve()
+            if not str(fp).startswith(str(repo_resolved) + "/") and fp != repo_resolved:
+                LOGGER.warning("[dev] Path traversal blocked: %s resolves outside repo", rel_path)
+                continue
             fp.parent.mkdir(parents=True, exist_ok=True)
             fp.write_text(content)
             LOGGER.info("[dev] Code written to %s (%d bytes)", fp, len(content))
             written_paths.append(fp)
+        if not written_paths:
+            raise ValueError("All LLM-generated paths were rejected (path traversal guard)")
         file_path = written_paths[0]
         code = multi[0][1]
     else:
