@@ -174,9 +174,7 @@ def _default_model_for_provider(provider: str) -> str:
         "openrouter": os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
         "deepseek": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         "gemini": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        "ollama": os.getenv("OLLAMA_MODEL")
-        or os.getenv("OLLANA_MODEL")
-        or "llama4:scout",
+        "ollama": os.getenv("OLLAMA_MODEL") or "llama4:scout",
         "claude": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
     }
     return defaults.get(provider, os.getenv("LLM_MODEL", "gpt-4.1"))
