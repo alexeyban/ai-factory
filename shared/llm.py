@@ -162,7 +162,6 @@ def _default_api_key(provider: str) -> Optional[str]:
     if provider == "ollama":
         return (
             os.getenv("OLLAMA_API_KEY")
-            or os.getenv("OLLANA_API_KEY")
             or os.getenv("LLM_API_KEY")
         )
     return os.getenv(env_name) or os.getenv("LLM_API_KEY")
