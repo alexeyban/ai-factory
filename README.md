@@ -131,8 +131,9 @@ File paths come from the task contract's `output.files` list. If the LLM returns
 ## LLM Layer
 
 `shared/llm.py` provides OpenAI-compatible chat completions with:
-- Provider fallback: `opencode → gemini → openai → deepseek → ollama`
-- 15-second cooldown after a provider returns 429
+- Provider fallback: `opencode → gemini → openai → deepseek → ollama → claude`
+- `claude` provider: invokes Claude Code CLI subprocess (`claude -p ...`) — works with an existing Claude Code subscription (reads `~/.claude/` credentials); no separate API key required
+- 15-second cooldown after a provider returns 429 or 401
 - Token estimation to enforce `LLM_MAX_PROMPT_TOKENS` (default 8000)
 - MiniMax M2.5 Free aliases for opencode provider
 - Mock mode via `MOCK_LLM=true`
