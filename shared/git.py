@@ -26,6 +26,31 @@ def slugify(value: str, separator: str = "_") -> str:
     return normalized or "project"
 
 
+_GITHUB_KNOWN_HOSTS = (
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+    "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFoVxld2pLnU24ihf1zNVo43SEGWAFmPmWSDBFm4NsQ=="  # noqa: E501
+    " github.com\n"
+    "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY"
+    "4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9"
+    "/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY"
+    "EXdBHAfvSJCLHnRVELApYFd0jqDJI5YFKJ7wJ1HNfKH6bQjBiB7ULI0USLS/1K9M1Kv+h9SinJ5SfkqalGxM= github.com\n"
+)
+
+
+def _ensure_github_known_hosts() -> None:
+    """Write GitHub's public host keys to known_hosts if not already present.
+
+    This allows StrictHostKeyChecking=yes without interactive prompts,
+    preventing MITM attacks on git-over-SSH operations.
+    """
+    known_hosts_path = Path(os.path.expanduser("~/.ssh/known_hosts"))
+    known_hosts_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = known_hosts_path.read_text() if known_hosts_path.exists() else ""
+    if "github.com ssh-ed25519" not in existing:
+        with known_hosts_path.open("a") as f:
+            f.write(_GITHUB_KNOWN_HOSTS)
+
+
 def _build_ssh_command() -> str:
     """Return a GIT_SSH_COMMAND for git operations.
 
@@ -33,21 +58,27 @@ def _build_ssh_command() -> str:
     pass -i, which would force SSH to decrypt the file and prompt for a
     passphrase (no TTY in container).  Fall back to an explicit identity
     file only when no agent socket is available.
+
+    StrictHostKeyChecking is enabled (default). GitHub's public keys are
+    pre-populated in known_hosts by _ensure_github_known_hosts().
     """
-    cmd = os.getenv("GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=no")
+    _ensure_github_known_hosts()
+    # If caller explicitly set GIT_SSH_COMMAND, respect it
+    if "GIT_SSH_COMMAND" in os.environ:
+        return os.environ["GIT_SSH_COMMAND"]
+    cmd = "ssh -o StrictHostKeyChecking=yes"
     # Agent socket available → let the agent provide the key, no -i needed
     if os.getenv("SSH_AUTH_SOCK"):
         return cmd
     # No agent → try to find an unencrypted (or usable) key file
-    if "-i " not in cmd and "IdentityFile" not in cmd:
-        for key_path in (
-            "/root/.ssh/id_ed25519",
-            "/root/.ssh/id_rsa",
-            "/root/.ssh/id_ecdsa",
-        ):
-            if os.path.exists(key_path):
-                cmd = f"{cmd} -i {key_path}"
-                break
+    for key_path in (
+        "/root/.ssh/id_ed25519",
+        "/root/.ssh/id_rsa",
+        "/root/.ssh/id_ecdsa",
+    ):
+        if os.path.exists(key_path):
+            cmd = f"{cmd} -i {key_path}"
+            break
     return cmd
 
 
