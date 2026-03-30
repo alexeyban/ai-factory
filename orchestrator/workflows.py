@@ -9,8 +9,9 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from agents.decomposer.agent import estimate_tokens as estimate_task_tokens
-from agents.decomposer.agent import normalize_task_contract
+with workflow.unsafe.imports_passed_through():
+    from agents.decomposer.agent import estimate_tokens as estimate_task_tokens
+    from agents.decomposer.agent import normalize_task_contract
 
 with workflow.unsafe.imports_passed_through():
     from shared.episode import new_episode_id, log_episode_event
