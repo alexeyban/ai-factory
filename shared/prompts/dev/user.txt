@@ -32,4 +32,26 @@ Implementation rules:
 - If verification.method is pytest, add or update the requested tests
 - Preserve working behavior unless QA feedback requires a change
 
+ARTIFACT LOCK: The PRIMARY output file MUST match the target listed above (e.g. reversi/engine.py).
+Do NOT change the artifact to requirements.txt, __init__.py, or any other file type.
+If the task requires a Python module, you must write that Python module.
+
+DEPENDENCY RULE: If your implementation imports external libraries (torch, numpy, PIL, scipy, etc.),
+you MUST also write a requirements.txt file listing those dependencies. Use the multi-file format:
+=== FILE: reversi/engine.py ===
+(your implementation here)
+=== FILE: requirements.txt ===
+numpy>=1.24.0
+torch>=2.0.0
+(etc.)
+
+COMPLETENESS REQUIRED: Generate syntactically complete Python. Every opening ( [ { MUST have a
+matching closing ) ] }. Do NOT truncate output mid-function. If the file would be very large,
+implement all required methods fully — stubs with `pass` or `raise NotImplementedError` are
+acceptable, but the file must parse without SyntaxError.
+
+TEST FILE FIXES: If QA feedback says a test file has a bug (e.g. wrong assertion, wrong constructor
+args, missing import in a test), you may also write the fixed test file using === FILE: tests/test_foo.py ===.
+Fix only what QA specifically identified as a test bug. Do not rewrite passing tests.
+
 Deliver the complete content of each target file so it meets the acceptance criteria.
