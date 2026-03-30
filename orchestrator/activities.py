@@ -495,12 +495,30 @@ def _task_module_path(task: Dict[str, Any], repo_path: Path) -> Path:
     return repo_path / package_name / f"{_task_slug(task)}.py"
 
 
+_SAFE_PATH_RE = re.compile(r'^[A-Za-z0-9_\-][A-Za-z0-9_\-./]*$')
+
+
+def _is_safe_relative_path(path: str) -> bool:
+    """Return True only for safe, relative paths with no traversal components."""
+    if not path or path.startswith("/"):
+        return False
+    # Reject any path component that is ".." (traversal)
+    parts = Path(path).parts
+    if any(p == ".." for p in parts):
+        return False
+    # Allow only safe characters: letters, digits, underscore, hyphen, dot, slash
+    if not _SAFE_PATH_RE.match(path):
+        return False
+    return True
+
+
 def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
     """Parse LLM output that may contain multiple files using === FILE: path === headers.
 
     Returns list of (relative_path, content) tuples.
     If no FILE headers are found, returns an empty list (caller uses single-file path).
     Skips entries where content is empty after stripping (LLM truncation guard).
+    Skips entries with unsafe paths (traversal, absolute, or special characters).
     """
     pattern = re.compile(r"^=== FILE: (.+?) ===\s*$", re.MULTILINE)
     matches = list(pattern.finditer(code))
@@ -509,6 +527,9 @@ def _parse_multi_file_output(code: str) -> List[tuple[str, str]]:
     files = []
     for i, match in enumerate(matches):
         path = match.group(1).strip()
+        if not _is_safe_relative_path(path):
+            LOGGER.warning("[dev] _parse_multi_file_output: unsafe path rejected: %r", path)
+            continue
         start = match.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(code)
         raw = code[start:end].strip("\n")
