@@ -208,10 +208,12 @@ Large dev tasks can time out because the full response must complete before time
 ### Tests
 - [x] Integration tests for `create_and_merge_github_pr` — `tests/test_git_github.py`
 - [x] Regression tests for PM activity with large architect response — `tests/test_pm_regression.py`
-- [x] Unit tests for `shared/tools.py` — `tests/test_tools.py`
+- [x] Unit tests for `shared/tools.py` — `tests/test_tools.py` (incl. non-.py syntax check skip)
 - [x] `workflow_id` propagation through task state cache — `tests/test_pm_regression.py`
-- [ ] Unit tests for `_parse_multi_file_output` and `_task_module_path`
+- [x] Unit tests for `_parse_multi_file_output` — `tests/test_parse_multi_file_output.py` (19 tests incl. path traversal security)
+- [ ] Unit tests for `_task_module_path`
 - [ ] Mock-LLM integration test for full dev → QA loop
+- **Total: 325 tests passing** (up from 303)
 
 ### Isolation debug scripts
 - [x] `scripts/debug_pm.py`
