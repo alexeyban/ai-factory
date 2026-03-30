@@ -39,7 +39,7 @@ class LLMConfig:
     max_prompt_tokens: Optional[int]
 
 
-FALLBACK_STATUS_CODES = {400, 408, 409, 413, 429, 500, 502, 503, 504}
+FALLBACK_STATUS_CODES = {400, 401, 408, 409, 413, 429, 500, 502, 503, 504}
 RATE_LIMIT_WINDOWS = {
     "gemini": {"max_requests": 10, "window_seconds": 60},
     "opencode": {"max_requests": 60, "window_seconds": 60},
