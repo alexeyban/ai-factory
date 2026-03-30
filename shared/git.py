@@ -492,20 +492,17 @@ def push_branch(
         current_url = run_git(
             repo_path, ["remote", "get-url", remote], check=False
         ).stdout.strip()
-        https_url = _github_https_remote(current_url, token)
+        https_url = _github_https_remote(current_url)
         if https_url:
-            run_git(repo_path, ["remote", "set-url", remote, https_url], check=False)
-            try:
-                https_result = run_git(
-                    repo_path,
-                    ["push", "-u", remote, branch_name],
-                    check=False,
-                )
-            finally:
-                run_git(
-                    repo_path, ["remote", "set-url", remote, current_url], check=False
-                )
-
+            # Push via HTTPS using Authorization header — token is never embedded in the URL
+            git_env = _git_env_with_token(token)
+            https_result = subprocess.run(
+                ["git", "push", "-u", https_url, branch_name],
+                env=git_env,
+                capture_output=True,
+                text=True,
+                cwd=repo_path,
+            )
             return {
                 "ok": https_result.returncode == 0,
                 "returncode": https_result.returncode,
