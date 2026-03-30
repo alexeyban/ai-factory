@@ -220,6 +220,15 @@ docker compose down --remove-orphans
 
 Temporal Web UI: `http://localhost:8088`
 
+## Security
+
+| Concern | Mitigation |
+|---------|-----------|
+| LLM path traversal | `_parse_multi_file_output()` rejects `..`, absolute paths, and shell-special characters; write sites do a `.resolve()` bounds check against the repo root |
+| SSH MITM | `shared/git.py` pre-populates `~/.ssh/known_hosts` with GitHub's public keys; all containers use `StrictHostKeyChecking=yes` |
+| GitHub token in URLs | HTTPS fallback push uses `GIT_CONFIG_*` env vars to inject an `Authorization: Basic` header — the token never appears in the remote URL, git config files, or error messages |
+| Grafana admin password | Parameterized via `GRAFANA_ADMIN_PASSWORD` env var (default `changeme_grafana`; override in `.env`) |
+
 ## State Persistence
 
 | Location | Contents |
