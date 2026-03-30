@@ -285,10 +285,12 @@ GLM-5 оборачивает JSON в markdown code fences, обрезает от
 * [ ] Убрать 3 временных `LOGGER.warning` для диагностики PM JSON parse (raw output, JSONDecodeError, _extract_json result)
 * Оставить только оригинальную одну строку warning
 
-### 10.5 Обновить README.md — LLM конфигурация  [ ]
-* [ ] LLM_MODEL default: `opencode/bigpickle` → `glm-5`
-* [ ] Debug scripts: обновить примеры с `glm-5`
-* [ ] Добавить заметку о `max_tokens=4096` для PM/Architect
+### 10.5 Обновить README.md — LLM конфигурация  [x]
+* [x] LLM_MODEL default обновлён (`glm-5`)
+* [x] Claude provider задокументирован
+* [x] Секция Security добавлена
+* [x] Pipeline Status обновлён до 2026-03-30
+* [x] Test count: 303 → 325
 
 ### 10.6 E2E верификация  [ ]
 * [ ] `docker compose up -d && EXTRA_TASK_QUEUES=... python -m orchestrator.worker`
