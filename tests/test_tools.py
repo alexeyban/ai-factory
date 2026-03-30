@@ -55,6 +55,24 @@ def test_syntax_check_missing_file():
     assert result.error != ""
 
 
+def test_syntax_check_skips_non_py_files():
+    """Non-.py files (requirements.txt, .md, etc.) must not be parsed as Python."""
+    for suffix, content in [
+        (".txt", "numpy>=1.24.0\npytest>=7.0.0\n"),
+        (".md", "# Header\nSome text\n"),
+        (".json", '{"key": "value"}\n'),
+    ]:
+        with tempfile.NamedTemporaryFile(suffix=suffix, mode="w", delete=False) as f:
+            f.write(content)
+            path = Path(f.name)
+        try:
+            result = syntax_check(path)
+            assert result.ok is True, f"syntax_check should skip {suffix} files, got ok=False"
+            assert result.data["errors"] == []
+        finally:
+            path.unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # build_file_tree
 # ---------------------------------------------------------------------------
