@@ -263,11 +263,11 @@ GLM-5 оборачивает JSON в markdown code fences, обрезает от
 
 ## TODO
 
-### 10.1 QA syntax check — пропускать не-Python файлы  [ ]
-* [ ] `shared/tools.py`: в `syntax_check()` добавить guard по расширению файла
-* [ ] Если `file_path.suffix not in (".py", ".pyw")` → `return ToolResult(ok=True, stdout="Skipped")`
-* Исправляет: `pyproject.toml` / `.yaml` / `.json` артефакты ломают QA ошибкой `ast.parse()`
-* Пример: T001 "Create project structure" падал 3 раза подряд из-за этого бага
+### 10.1 QA syntax check — пропускать не-Python файлы  [x]
+* [x] `shared/tools.py`: в `syntax_check()` добавить guard по расширению файла
+* [x] Если `file_path.suffix != ".py"` → `return ToolResult(ok=True, output="syntax check skipped")`
+* Исправляет: `requirements.txt` / `.yaml` / `.json` артефакты ломают QA ошибкой `ast.parse()`
+* Тест добавлен: `tests/test_tools.py::test_syntax_check_skips_non_py_files`
 
 ### 10.2 Architect + PM call_llm — max_tokens=4096  [x]
 * [x] `orchestrator/activities.py` `architect_activity`: добавлен `max_tokens=4096`
