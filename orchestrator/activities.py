@@ -1311,9 +1311,19 @@ def _run_qa_for_artifact(
         ),
     )
 
+    LOGGER.info(
+        "[qa] Starting checks | task_id=%s | attempt=%d | branch=%s | artifact=%s",
+        task_id, attempt_number, branch_name, artifact or "MISSING",
+    )
+    qa_start = time.monotonic()
+
     hidden_result: Dict[str, Any] = {"ran": False, "score": 1.0, "passed": 0, "total": 0}
     artifact_path = Path(artifact) if artifact else None
     if not artifact or not artifact_path or not artifact_path.exists():
+        LOGGER.warning(
+            "[qa] Artifact missing | task_id=%s | attempt=%d | artifact=%s",
+            task_id, attempt_number, artifact or "None",
+        )
         summary = {
             "status": "fail",
             "failing_tests": [],
@@ -1335,10 +1345,16 @@ def _run_qa_for_artifact(
     else:
         dependency_info = _install_project_dependencies(repo_path)
         python_path = Path(dependency_info["python"])
+        LOGGER.debug("[qa] Dependencies | task_id=%s | python=%s | ok=%s", task_id, python_path, dependency_info.get("ok", True))
 
         # 1. Syntax check (stdlib, instant — no subprocess)
         syntax_result = syntax_check(artifact_path)
+        LOGGER.info("[qa] Syntax | task_id=%s | ok=%s", task_id, syntax_result.ok)
         if not syntax_result.ok:
+            LOGGER.warning(
+                "[qa] Syntax FAIL | task_id=%s | error=%.300s",
+                task_id, syntax_result.output,
+            )
             qa_logs = (
                 f"Dependency install: {json.dumps(dependency_info, ensure_ascii=True)}\n\n"
                 f"SYNTAX ERROR (pre-pytest):\n{syntax_result.output}\n"
@@ -1348,17 +1364,50 @@ def _run_qa_for_artifact(
         else:
             # 2. Lint (ruff — skipped gracefully if not installed)
             lint_result = run_lint(artifact_path, python_path)
+            lint_issues = len(lint_result.data.get("issues", [])) if not lint_result.error else 0
+            LOGGER.info(
+                "[qa] Lint | task_id=%s | ok=%s | issues=%d | skipped=%s",
+                task_id, lint_result.ok, lint_issues, bool(lint_result.error),
+            )
 
             # 3. Type check (mypy — skipped gracefully if not installed)
             type_result = run_typecheck(artifact_path, repo_path, python_path)
+            type_errors = len(type_result.data.get("errors", [])) if not type_result.error else 0
+            LOGGER.info(
+                "[qa] TypeCheck | task_id=%s | ok=%s | errors=%d | skipped=%s",
+                task_id, type_result.ok, type_errors, bool(type_result.error),
+            )
 
             # 4. Pytest with coverage (replaces bare _run_pytest)
+            LOGGER.info(
+                "[qa] Pytest starting | task_id=%s | timeout=%ds | repo=%s",
+                task_id, remaining_seconds or 120, repo_path,
+            )
+            pytest_start = time.monotonic()
             pytest_result = run_pytest_with_coverage(
                 repo_path,
                 python_path,
                 timeout=remaining_seconds or 120,
                 module_name=_project_slug(task),
             )
+            cov = pytest_result.data.get("coverage")
+            cov_pct = f"{cov['percent']:.1f}%" if cov else "n/a"
+            LOGGER.info(
+                "[qa] Pytest done | task_id=%s | ok=%s | elapsed=%.1fs | coverage=%s | "
+                "passed=%s | failed=%s | errors=%s",
+                task_id,
+                pytest_result.ok,
+                time.monotonic() - pytest_start,
+                cov_pct,
+                pytest_result.data.get("passed", "?"),
+                pytest_result.data.get("failed", "?"),
+                pytest_result.data.get("errors", "?"),
+            )
+            if not pytest_result.ok:
+                # Log first 500 chars of pytest stdout for quick diagnosis
+                stdout_snippet = (pytest_result.data.get("stdout") or "")[:500].strip()
+                if stdout_snippet:
+                    LOGGER.warning("[qa] Pytest output snippet | task_id=%s |\n%s", task_id, stdout_snippet)
 
             # 5. Assemble qa_logs for LLM summarizer
             if lint_result.error:
@@ -1385,7 +1434,6 @@ def _run_qa_for_artifact(
                     )
                 )
 
-            cov = pytest_result.data.get("coverage")
             cov_section = (
                 f"Coverage: {cov['percent']:.1f}%"
                 f" ({cov['covered_lines']}/{cov['total_lines']} lines)\n"
@@ -1407,8 +1455,19 @@ def _run_qa_for_artifact(
         # --- Hidden tests (Phase 9): run only when public tests pass ---
         if status == "success" and task.get("hidden_tests"):
             hidden_result = _run_hidden_tests(task, repo_path, python_path)
+            LOGGER.info(
+                "[qa] Hidden tests | task_id=%s | ran=%s | score=%.3f | passed=%d/%d",
+                task_id, hidden_result.get("ran"), hidden_result.get("score", 1.0),
+                hidden_result.get("passed", 0), hidden_result.get("total", 0),
+            )
 
         summary = _summarize_qa_result(description, qa_logs, status, attempt_number=attempt_number)
+
+    LOGGER.info(
+        "[qa] Checks done | task_id=%s | status=%s | elapsed=%.1fs | error_summary=%.200s",
+        task_id, status, time.monotonic() - qa_start,
+        (summary.get("error_summary") or "") if isinstance(summary, dict) else "",
+    )
 
     qa_dir = repo_path / "documents" / "qa"
     qa_md_path = _next_version_path(qa_dir, f"qa_report_{_task_slug(task)}", ".md")
