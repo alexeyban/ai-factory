@@ -40,10 +40,11 @@ with workflow.unsafe.imports_passed_through():
 
 
 LLM_ACTIVITY_TIMEOUT_MINUTES = int(
-    os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "30")
+    os.getenv("WORKFLOW_LLM_ACTIVITY_TIMEOUT_MINUTES", "60")
 )
-TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "24"))
-TASK_EXECUTION_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_EXECUTION_TIMEOUT_HOURS", "2"))
+TASK_BATCH_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_BATCH_TIMEOUT_HOURS", "48"))
+TASK_EXECUTION_TIMEOUT_HOURS = int(os.getenv("WORKFLOW_TASK_EXECUTION_TIMEOUT_HOURS", "4"))
+MAX_TASK_REARCHITECT_ATTEMPTS = int(os.getenv("MAX_TASK_REARCHITECT_ATTEMPTS", "1"))
 
 # Route task type / assigned_agent to the appropriate named Temporal activity
 # and the dedicated task queue for that agent container.
