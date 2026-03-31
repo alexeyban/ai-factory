@@ -134,7 +134,7 @@ def _infer_provider_from_model(model: Optional[str], provider: Optional[str]) ->
     if model and "/" in model:
         return _normalize_provider(model.split("/", 1)[0])
 
-    return _normalize_provider(os.getenv("LLM_PROVIDER", "openai"))
+    return _normalize_provider(os.getenv("LLM_PROVIDER", "claude"))
 
 
 def _default_base_url(provider: str) -> Optional[str]:
