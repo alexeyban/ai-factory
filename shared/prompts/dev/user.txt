@@ -17,6 +17,8 @@ QA feedback:
 
 {existing_code}
 
+{project_notes}
+
 {skills_context}
 
 {failure_patterns}
