@@ -1170,6 +1170,11 @@ def _generate_dev_artifact(
 def _summarize_qa_result(
     task_description: str, qa_logs: str, status: str, attempt_number: int = 1
 ) -> Dict[str, Any]:
+    LOGGER.debug(
+        "[qa] Summarizing QA result | status=%s | attempt=%d | logs_chars=%d",
+        status, attempt_number, len(qa_logs),
+    )
+    _sum_start = time.monotonic()
     qa_summary_raw = call_llm(
         QA_SYSTEM_PROMPT,
         render_prompt(
@@ -1178,6 +1183,10 @@ def _summarize_qa_result(
             task_description=task_description,
             attempt_number=attempt_number,
         ),
+    )
+    LOGGER.debug(
+        "[qa] Summary LLM done | status=%s | elapsed=%.1fs | response_chars=%d",
+        status, time.monotonic() - _sum_start, len(qa_summary_raw),
     )
     try:
         qa_summary = json.loads(_extract_json(qa_summary_raw))
