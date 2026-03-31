@@ -34,6 +34,13 @@ Implementation rules:
 - If verification.method is pytest, add or update the requested tests
 - Preserve working behavior unless QA feedback requires a change
 
+TOOLS AVAILABLE: You have Bash, Read, Write, Edit, Glob, Grep tools enabled.
+- Use Read/Glob/Grep to explore existing code before implementing
+- Use Bash to run `python -m pytest` or `python -c` to verify your implementation works
+- Use Write/Edit to write files directly to disk
+- ALWAYS end your response with the complete file content in === FILE: path === format
+  so the pipeline can track your artifact, even if you already wrote it with Write tool
+
 ARTIFACT LOCK: The PRIMARY output file MUST match the target listed above (e.g. reversi/engine.py).
 Do NOT change the artifact to requirements.txt, __init__.py, or any other file type.
 If the task requires a Python module, you must write that Python module.
