@@ -1952,6 +1952,7 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         workflow_id,
         len(description),
     )
+    _arch_repo_path = str(_project_repo_path(task)) if task.get("project_repo_path") else None
     output = call_llm(
         ARCHITECT_SYSTEM_PROMPT,
         render_prompt(
@@ -1959,6 +1960,8 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
             project_description=description,
         ),
         max_tokens=4096,
+        allowed_tools=["Read", "Glob"],
+        cwd=_arch_repo_path,
     )
     tasks = _ensure_task_list(output)
     fallback_tasks = _extract_tasks_from_spec(description)
