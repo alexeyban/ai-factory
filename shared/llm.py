@@ -401,6 +401,8 @@ def _request_with_fallback(
     max_tokens: Optional[int],
     timeout: Optional[float],
     max_prompt_tokens: Optional[int],
+    allowed_tools: Optional[list[str]] = None,
+    cwd: Optional[str] = None,
 ) -> str:
     primary_provider = _infer_provider_from_model(model, provider)
     fallback_chain = _build_fallback_chain(primary_provider)
