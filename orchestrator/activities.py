@@ -2768,10 +2768,9 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
         qa_feedback = previous_state.get("last_qa_feedback")
 
     LOGGER.info(
-        "[process_task] Running dev | workflow=%s | task_id=%s | attempt=%d",
-        workflow_id,
-        task_id,
-        next_attempt,
+        "[process_task] Running dev | workflow=%s | task_id=%s | attempt=%d | mode=%s",
+        workflow_id, task_id, next_attempt,
+        "autofix" if qa_feedback else "initial",
     )
     dev_result = _generate_dev_artifact(
         task=task,
@@ -2781,10 +2780,12 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
         qa_feedback=qa_feedback,
     )
     LOGGER.info(
-        "[process_task] Running QA | workflow=%s | task_id=%s | attempt=%d",
-        workflow_id,
-        task_id,
-        next_attempt,
+        "[process_task] Dev done | workflow=%s | task_id=%s | artifact=%s | commit=%s",
+        workflow_id, task_id, dev_result.get("artifact"), dev_result.get("commit"),
+    )
+    LOGGER.info(
+        "[process_task] Running QA | workflow=%s | task_id=%s | attempt=%d | remaining=%ss",
+        workflow_id, task_id, next_attempt, _remaining_time_seconds(activity_start_time),
     )
     qa_result = _run_qa_for_artifact(
         task,
@@ -2793,6 +2794,12 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
         dev_result["artifact"],
         next_attempt,
         remaining_seconds=_remaining_time_seconds(activity_start_time),
+    )
+    _qa_summary = qa_result.get("summary") or {}
+    LOGGER.info(
+        "[process_task] QA done | workflow=%s | task_id=%s | status=%s | error=%.200s",
+        workflow_id, task_id, qa_result.get("status"),
+        (_qa_summary.get("error_summary") or "") if isinstance(_qa_summary, dict) else "",
     )
     healing_history.append(
         {"attempt": next_attempt, "dev": dev_result, "qa": qa_result}
@@ -2822,11 +2829,11 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
         and not _task_timed_out(activity_start_time)
     ):
         next_attempt = len(healing_history) + 1
+        _prev_summary = qa_result.get("summary") or {}
+        _prev_error = (_prev_summary.get("error_summary") or "") if isinstance(_prev_summary, dict) else ""
         LOGGER.info(
-            "[process_task] Self-healing | workflow=%s | task_id=%s | attempt=%d",
-            workflow_id,
-            task_id,
-            next_attempt,
+            "[process_task] Self-healing triggered | workflow=%s | task_id=%s | attempt=%d/%d | reason=%.200s",
+            workflow_id, task_id, next_attempt, MAX_SELF_HEALING_ATTEMPTS + 1, _prev_error,
         )
         autofix_feedback = {
             "previous_qa_status": qa_result.get("status"),
@@ -2840,6 +2847,10 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
             attempt_number=next_attempt,
             qa_feedback=autofix_feedback,
         )
+        LOGGER.info(
+            "[process_task] Dev done (heal) | workflow=%s | task_id=%s | artifact=%s | commit=%s",
+            workflow_id, task_id, dev_result.get("artifact"), dev_result.get("commit"),
+        )
         qa_result = _run_qa_for_artifact(
             task,
             task_id,
@@ -2847,6 +2858,12 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
             dev_result["artifact"],
             next_attempt,
             remaining_seconds=_remaining_time_seconds(activity_start_time),
+        )
+        _qa_summary = qa_result.get("summary") or {}
+        LOGGER.info(
+            "[process_task] QA done (heal) | workflow=%s | task_id=%s | status=%s | error=%.200s",
+            workflow_id, task_id, qa_result.get("status"),
+            (_qa_summary.get("error_summary") or "") if isinstance(_qa_summary, dict) else "",
         )
         healing_history.append(
             {"attempt": next_attempt, "dev": dev_result, "qa": qa_result}
