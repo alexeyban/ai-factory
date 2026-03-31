@@ -948,6 +948,84 @@ def _record_architecture_request(task: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_PROJECT_NOTES_FILENAME = "project_notes.md"
+_PROJECT_NOTES_SECTIONS = [
+    "Conventions Discovered",
+    "Architecture Decisions",
+    "Known Failure Patterns",
+    "Completed Tasks Summary",
+]
+_PROJECT_NOTES_MAX_PROMPT_CHARS = 3000
+
+
+def _project_notes_path(repo_path: Path) -> Path:
+    return repo_path / ".ai_factory" / _PROJECT_NOTES_FILENAME
+
+
+def _load_project_notes(repo_path: Path) -> str:
+    """Load accumulated project notes to inject into agent prompts.
+
+    Returns empty string if the file doesn't exist. Never raises.
+    """
+    try:
+        p = _project_notes_path(repo_path)
+        if not p.exists():
+            return ""
+        text = p.read_text(encoding="utf-8").strip()
+        if not text:
+            return ""
+        # Trim from the top if too long (keep most recent content at the bottom)
+        if len(text) > _PROJECT_NOTES_MAX_PROMPT_CHARS:
+            text = "...[earlier notes truncated]...\n" + text[-_PROJECT_NOTES_MAX_PROMPT_CHARS:]
+        return text
+    except Exception:
+        return ""
+
+
+def _append_project_note(repo_path: Path, section: str, entry: str) -> None:
+    """Append a timestamped entry under the given section in project_notes.md.
+
+    Creates the file with all section headers if it doesn't exist. Never raises.
+    """
+    try:
+        p = _project_notes_path(repo_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if p.exists():
+            content = p.read_text(encoding="utf-8")
+        else:
+            project_name = repo_path.name
+            header_lines = [f"# Project Notes: {project_name}", ""]
+            for s in _PROJECT_NOTES_SECTIONS:
+                header_lines += [f"## {s}", ""]
+            content = "\n".join(header_lines)
+
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        stamped = f"- [{ts}] {entry}"
+
+        section_header = f"## {section}"
+        if section_header in content:
+            # Insert after the section header line
+            lines = content.splitlines()
+            insert_at = None
+            for i, line in enumerate(lines):
+                if line.strip() == section_header:
+                    insert_at = i + 1
+                    break
+            if insert_at is not None:
+                # Skip blank lines right after the header
+                while insert_at < len(lines) and lines[insert_at].strip() == "":
+                    insert_at += 1
+                lines.insert(insert_at, stamped)
+                content = "\n".join(lines) + "\n"
+        else:
+            content = content.rstrip() + f"\n\n{section_header}\n{stamped}\n"
+
+        p.write_text(content, encoding="utf-8")
+        LOGGER.debug("[notes] Appended to '%s' | file=%s", section, p)
+    except Exception as exc:
+        LOGGER.warning("[notes] Failed to append project note: %s", exc)
+
+
 def _build_existing_code_context(task: Dict[str, Any]) -> str:
     """Build the existing_code block for the dev prompt.
 
