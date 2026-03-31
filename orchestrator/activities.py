@@ -1495,6 +1495,7 @@ def _run_qa_for_artifact(
         if not push_result.get("ok"):
             push_result = _sync_branch_to_remote(repo_path, branch_name)
 
+        LOGGER.info("[qa] Creating PR | task_id=%s | branch=%s", task_id, branch_name)
         pr_result = create_and_merge_github_pr(
             repo_path,
             branch_name,
@@ -1505,15 +1506,15 @@ def _run_qa_for_artifact(
         if pr_result.get("ok"):
             pr_url = pr_result.get("pr_url")
             merge_commit = pr_result.get("merge_commit")
-            LOGGER.info("[qa] PR merged via GitHub API: %s", pr_url)
+            LOGGER.info("[qa] PR merged via GitHub API | task_id=%s | pr=%s | commit=%s", task_id, pr_url, merge_commit)
             run_git(repo_path, ["checkout", "main"], check=False)
             run_git(repo_path, ["pull", "origin", "main"], check=False)
             run_git(repo_path, ["branch", "-d", branch_name], check=False)
             merge_push_result = {"ok": True, "transport": "github_api"}
         else:
             LOGGER.warning(
-                "[qa] GitHub PR failed (%s), falling back to local merge",
-                pr_result.get("error"),
+                "[qa] GitHub PR failed | task_id=%s | error=%s | falling back to local merge",
+                task_id, pr_result.get("error"),
             )
             run_git(repo_path, ["checkout", "main"])
             run_git(
@@ -1523,6 +1524,10 @@ def _run_qa_for_artifact(
             )
             merge_commit = run_git(repo_path, ["rev-parse", "HEAD"]).stdout.strip()
             merge_push_result = _sync_branch_to_remote(repo_path, "main")
+            LOGGER.info(
+                "[qa] Local merge done | task_id=%s | merge_commit=%s | push_ok=%s",
+                task_id, merge_commit, merge_push_result.get("ok"),
+            )
             run_git(repo_path, ["push", "origin", "--delete", branch_name], check=False)
             run_git(repo_path, ["branch", "-d", branch_name], check=False)
 
