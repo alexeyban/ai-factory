@@ -339,8 +339,17 @@ def _call_claude_subprocess(
     user_prompt: str,
     model: str,
     timeout: float = 120.0,
+    allowed_tools: Optional[list[str]] = None,
+    cwd: Optional[str] = None,
 ) -> str:
-    """Invoke claude CLI as subprocess — uses ~/.claude/ subscription credentials or ANTHROPIC_API_KEY."""
+    """Invoke claude CLI as subprocess — uses ~/.claude/ subscription credentials or ANTHROPIC_API_KEY.
+
+    allowed_tools: list of Claude Code tool names to enable (e.g. ["Bash", "Read", "Write", "Edit"]).
+        When set, Claude can use those tools during its response — it can read files, run commands,
+        and write output directly to disk within cwd. Pass None to disable tool use (text-only mode).
+    cwd: working directory for the subprocess. Relative file paths in tool calls resolve against this.
+        Defaults to current working directory when None.
+    """
     import subprocess
 
     # Note: do NOT use --bare; it disables OAuth/subscription auth (only ANTHROPIC_API_KEY works with --bare).
@@ -350,11 +359,15 @@ def _call_claude_subprocess(
         "-p", user_prompt,
         "--output-format", "json",
         "--no-session-persistence",
+        # Skip interactive permission prompts — containers run unattended.
+        "--dangerously-skip-permissions",
     ]
     if system_prompt:
         cmd += ["--append-system-prompt", system_prompt]
     if model:
         cmd += ["--model", model]
+    if allowed_tools:
+        cmd += ["--allowedTools", ",".join(allowed_tools)]
 
     try:
         proc = subprocess.run(
@@ -363,6 +376,7 @@ def _call_claude_subprocess(
             text=True,
             timeout=timeout,
             env=os.environ.copy(),
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"claude CLI timed out after {timeout}s") from exc
