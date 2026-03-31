@@ -1181,12 +1181,15 @@ def _generate_dev_artifact(
 
     mode = "autofix" if qa_feedback else "initial"
     dev_prompt = _build_dev_prompt(task, description, attempt_number, qa_feedback)
+    # Grant dev agent full tool access so Claude can read existing files, write
+    # implementation, run tests via Bash, and iterate — all within one LLM call.
+    _dev_tools = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
     LOGGER.info(
-        "[dev] LLM call | task_id=%s | attempt=%d | mode=%s | prompt_chars=%d | branch=%s",
-        task_id, attempt_number, mode, len(dev_prompt), branch_name,
+        "[dev] LLM call | task_id=%s | attempt=%d | mode=%s | prompt_chars=%d | branch=%s | tools=%s",
+        task_id, attempt_number, mode, len(dev_prompt), branch_name, _dev_tools,
     )
     llm_start = time.monotonic()
-    raw_output = call_llm(DEV_SYSTEM_PROMPT, dev_prompt)
+    raw_output = call_llm(DEV_SYSTEM_PROMPT, dev_prompt, allowed_tools=_dev_tools, cwd=str(repo_path))
     LOGGER.info(
         "[dev] LLM done | task_id=%s | attempt=%d | response_chars=%d | elapsed=%.1fs",
         task_id, attempt_number, len(raw_output), time.monotonic() - llm_start,
