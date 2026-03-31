@@ -472,8 +472,8 @@ def get_task_error_history(repo_path: Path, task_id: str) -> ToolResult:
             )[:500]
         else:
             qa_summary = str(qa_summary_raw)[:500]
-        # logs give extra context (first 300 chars)
-        qa_logs_snippet = str(qa.get("logs", ""))[:300]
+        # logs give extra context (first 2000 chars)
+        qa_logs_snippet = str(qa.get("logs", ""))[:2000]
         attempts.append({
             "attempt": attempt_num,
             "error": str(error)[:300] if error else "",
