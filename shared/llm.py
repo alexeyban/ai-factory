@@ -830,7 +830,19 @@ def call_llm(
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
     max_prompt_tokens: Optional[int] = None,
+    allowed_tools: Optional[list[str]] = None,
+    cwd: Optional[str] = None,
 ) -> str:
+    """Call the configured LLM provider.
+
+    allowed_tools: Claude Code tool names to enable when provider is "claude"
+        (e.g. ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]).
+        Claude will use these tools autonomously during its response.
+        Ignored for non-claude providers.
+    cwd: working directory for claude subprocess tool execution.
+        File paths in tool calls resolve relative to this directory.
+        Ignored for non-claude providers.
+    """
     if MOCK_MODE:
         return _mock_llm(system_prompt, user_prompt)
 
@@ -858,6 +870,8 @@ def call_llm(
         max_prompt_tokens=max_prompt_tokens
         if max_prompt_tokens is not None
         else config.max_prompt_tokens,
+        allowed_tools=allowed_tools,
+        cwd=cwd,
     )
 
 
