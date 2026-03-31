@@ -429,6 +429,8 @@ def _request_with_fallback(
                     user_msg,
                     _default_model_for_provider("claude"),
                     timeout=timeout or 120.0,
+                    allowed_tools=allowed_tools,
+                    cwd=cwd,
                 )
                 _record_provider_request("claude")
                 return result
