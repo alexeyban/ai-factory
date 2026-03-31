@@ -1113,6 +1113,17 @@ def _build_dev_prompt(
     else:
         strategy_instruction = "Strategy: EXPLOIT — leverage the available skills above to compose your solution."
 
+    # Project notes: accumulated cross-task context (conventions, arch decisions, failure patterns)
+    project_notes_text = ""
+    try:
+        repo_path = _project_repo_path(task)
+        if repo_path.exists():
+            notes = _load_project_notes(repo_path)
+            if notes:
+                project_notes_text = "=== PROJECT NOTES (accumulated context) ===\n" + notes
+    except Exception:
+        pass
+
     # Strip hidden_tests so dev agent never sees them
     task_for_prompt = {k: v for k, v in task.items() if k != "hidden_tests"}
     return render_prompt(
@@ -1124,6 +1135,7 @@ def _build_dev_prompt(
         qa_feedback=qa_feedback_text,
         error_history=error_history_text,
         existing_code=_build_existing_code_context(task),
+        project_notes=project_notes_text,
         skills_context=skills_context,
         failure_patterns=failure_patterns,
         strategy_instruction=strategy_instruction,
