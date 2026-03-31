@@ -1974,6 +1974,21 @@ async def architect_activity(task: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     artifact_paths = _record_architecture_artifacts(task, output, tasks)
+
+    # Write architecture summary to project notes so dev agents have context
+    try:
+        _repo = Path(artifact_paths["project_repo_path"])
+        # Extract first 800 chars of architect output as a summary
+        _arch_summary = output.strip()[:800].replace("\n", " ").replace("  ", " ")
+        if _arch_summary:
+            _append_project_note(
+                _repo,
+                "Architecture Decisions",
+                f"(workflow {workflow_id[:8]}) {_arch_summary}",
+            )
+    except Exception:
+        pass
+
     # Use a short project_description in task contexts to prevent the full PM plan
     # (which can be 30+ tasks with full objects) from being embedded into every task
     # and overflowing the decomposer's Temporal message payload.
