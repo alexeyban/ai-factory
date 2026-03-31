@@ -55,6 +55,8 @@ retry_policy = RetryPolicy(
 
 ARCHITECT_SYSTEM_PROMPT = load_prompt("architect", "system")
 ARCHITECT_USER_PROMPT = load_prompt("architect", "user")
+REARCHITECT_SYSTEM_PROMPT = load_prompt("rearchitect", "system")
+REARCHITECT_USER_PROMPT = load_prompt("rearchitect", "user")
 ANALYST_SYSTEM_PROMPT = load_prompt("analyst", "system")
 ANALYST_USER_PROMPT = load_prompt("analyst", "user")
 QA_SYSTEM_PROMPT = load_prompt("qa", "system")
