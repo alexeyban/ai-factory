@@ -15,4 +15,10 @@ COPY . .
 
 ENV PYTHONPATH=/app
 
+# Container entrypoint: copies host claude credentials into writable ~/.claude/
+# and writes a permissive settings.json so agents can use Bash/Read/Write/Edit tools.
+COPY infra/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "orchestrator/worker.py"]
