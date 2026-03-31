@@ -85,7 +85,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
@@ -109,7 +109,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
@@ -132,7 +132,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
@@ -155,7 +155,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
@@ -178,7 +178,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
@@ -201,7 +201,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ${SSH_AUTH_SOCK}:${SSH_AUTH_SOCK}
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_NAMESPACE=default
