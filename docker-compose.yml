@@ -274,6 +274,22 @@ services:
     env_file:
       - .env
 
+  web-ui:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "8088:8088"
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_NAMESPACE=default
+      - TASK_QUEUE=ai-factory-tasks
+      - TEMPORAL_WEB_URL=http://localhost:8080
+    env_file:
+      - .env
+
   otel-collector:
     image: otel/opentelemetry-collector:latest
     volumes:
