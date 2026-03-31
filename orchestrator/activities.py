@@ -2261,12 +2261,13 @@ def _generate_single_candidate(
         failure_patterns=failure_patterns,
         strategy=strategy,
     )
+    _dev_tools = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
     LOGGER.info(
-        "[dev] LLM call (candidate %d) | task_id=%s | attempt=%d | strategy=%s | prompt_chars=%d",
-        candidate_idx, task_id, attempt_number, strategy, len(_cand_prompt),
+        "[dev] LLM call (candidate %d) | task_id=%s | attempt=%d | strategy=%s | prompt_chars=%d | tools=%s",
+        candidate_idx, task_id, attempt_number, strategy, len(_cand_prompt), _dev_tools,
     )
     _cand_llm_start = time.monotonic()
-    raw_output = call_llm(DEV_SYSTEM_PROMPT, _cand_prompt)
+    raw_output = call_llm(DEV_SYSTEM_PROMPT, _cand_prompt, allowed_tools=_dev_tools, cwd=str(repo_path))
     LOGGER.info(
         "[dev] LLM done (candidate %d) | task_id=%s | elapsed=%.1fs | response_chars=%d",
         candidate_idx, task_id, time.monotonic() - _cand_llm_start, len(raw_output),
