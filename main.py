@@ -84,7 +84,7 @@ async def start_project(
         initial_task,
         id=workflow_id,
         task_queue=task_queue,
-        execution_timeout=timedelta(hours=2),
+        execution_timeout=timedelta(hours=12),
     )
 
     print(f"Workflow started: {workflow_id}")
@@ -93,7 +93,7 @@ async def start_project(
     )
 
     try:
-        result = await handle.result(rpc_timeout=timedelta(hours=2))
+        result = await handle.result(rpc_timeout=timedelta(hours=12))
         print("Workflow completed successfully!")
         print(f"Result: {result}")
     except Exception as e:
