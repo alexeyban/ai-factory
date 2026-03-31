@@ -263,6 +263,8 @@ services:
       - temporal
       - memory-worker
       - kafka
+    volumes:
+      - ${HOME}/.claude:/root/.claude-host:ro
     environment:
       - MEMORY_DB_URL=${MEMORY_DB_URL:-postgresql://temporal:temporal@postgres:5432/ai_factory_memory}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
