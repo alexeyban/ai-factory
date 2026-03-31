@@ -205,7 +205,7 @@ def _build_fallback_chain(primary_provider: str) -> list[str]:
     if configured:
         ordered = [primary_provider, *configured]
     else:
-        ordered = [primary_provider, "gemini", "openai", "deepseek", "ollama"]
+        ordered = [primary_provider]  # no automatic fallback to external providers
 
     deduped: list[str] = []
     for provider in ordered:
