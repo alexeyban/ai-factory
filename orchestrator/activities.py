@@ -1624,6 +1624,13 @@ def _run_qa_for_artifact(
         # --- Skill extraction (fire-and-forget) ---
         _try_extract_skill(task, task_id, artifact)
 
+        # --- Project notes: record completed task ---
+        _append_project_note(
+            repo_path,
+            "Completed Tasks Summary",
+            f"{task_id}: {_task_title(task)} — {Path(artifact).relative_to(repo_path) if artifact and Path(artifact).exists() else 'no artifact'}",
+        )
+
     return {
         "task_id": task_id,
         "status": status,
