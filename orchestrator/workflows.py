@@ -263,6 +263,7 @@ async def _dispatch_tasks(
     remaining = list(tasks)
     wave = 0
     prev_wave_had_rate_limit = False
+    rearchitect_counts: dict[str, int] = {}  # original task_id → re-architect attempts used
 
     while remaining:
         ready = [
@@ -301,6 +302,8 @@ async def _dispatch_tasks(
         raw = await asyncio.gather(*[_run_one(t) for t in ready], return_exceptions=True)
 
         prev_wave_had_rate_limit = False
+        tasks_to_rearchitect: list[tuple[Dict[str, Any], Dict[str, Any]]] = []
+
         for task, outcome in zip(ready, raw):
             task_id = task.get("task_id", "unknown")
             if isinstance(outcome, BaseException):
@@ -320,8 +323,59 @@ async def _dispatch_tasks(
             else:
                 result = _make_error(task, f"Unexpected result type: {type(outcome).__name__}")
 
+            # Log QA failures explicitly
+            if result.get("status") == "fail" or result.get("qa_status") == "fail":
+                workflow.logger.warning(
+                    f"[{workflow_id}] Task {task_id} FAILED QA after all retries. "
+                    f"status={result.get('status')} qa_status={result.get('qa_status')}"
+                )
+                # Queue for immediate re-architecture if budget allows
+                attempts_used = rearchitect_counts.get(task_id, 0)
+                if attempts_used < MAX_TASK_REARCHITECT_ATTEMPTS:
+                    tasks_to_rearchitect.append((task, result))
+
             completed[task_id] = result
             remaining.remove(task)
+
+        # Re-architect QA-failed tasks immediately (before PM recovery)
+        for original_task, failed_result in tasks_to_rearchitect:
+            orig_id = original_task.get("task_id", "unknown")
+            rearchitect_counts[orig_id] = rearchitect_counts.get(orig_id, 0) + 1
+            workflow.logger.info(
+                f"[{workflow_id}] Re-architecting failed task {orig_id} "
+                f"(attempt {rearchitect_counts[orig_id]}/{MAX_TASK_REARCHITECT_ATTEMPTS})"
+            )
+            try:
+                rearch_envelope = await workflow.execute_activity(
+                    rearchitect_failed_task_activity,
+                    {"task": original_task, "qa_failure": failed_result, "_workflow_id": workflow_id},
+                    task_queue="ai-factory-tasks",
+                    start_to_close_timeout=timedelta(minutes=LLM_ACTIVITY_TIMEOUT_MINUTES),
+                    retry_policy=retry_policy,
+                )
+                rearch_full = _load_result_from_file(
+                    _require_activity_result("rearchitect_failed_task_activity", rearch_envelope)
+                )
+                new_tasks = rearch_full.get("tasks", [])
+                if new_tasks:
+                    project_context = {
+                        k: original_task.get(k, "")
+                        for k in ("project_name", "project_repo_path", "github_url", "project_description")
+                    }
+                    new_tasks = await _decompose_large_tasks(new_tasks, project_context, retry_policy)
+                    workflow.logger.info(
+                        f"[{workflow_id}] Re-architect of {orig_id} produced {len(new_tasks)} task(s) — queuing"
+                    )
+                    remaining.extend(new_tasks)
+                else:
+                    workflow.logger.warning(
+                        f"[{workflow_id}] Re-architect of {orig_id} produced no tasks — task stays failed"
+                    )
+            except Exception as exc:
+                workflow.logger.warning(
+                    f"[{workflow_id}] Re-architect activity failed for {orig_id}: {exc} — task stays failed"
+                )
+
         await asyncio.sleep(0)  # yield event loop between waves to prevent TMPRL1101
 
     return list(completed.values())
