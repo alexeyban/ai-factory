@@ -2140,14 +2140,21 @@ def _generate_single_candidate(
         ),
     )
 
-    raw_output = call_llm(
-        DEV_SYSTEM_PROMPT,
-        _build_dev_prompt(
-            task, description, attempt_number, qa_feedback,
-            skills_context=skills_context,
-            failure_patterns=failure_patterns,
-            strategy=strategy,
-        ),
+    _cand_prompt = _build_dev_prompt(
+        task, description, attempt_number, qa_feedback,
+        skills_context=skills_context,
+        failure_patterns=failure_patterns,
+        strategy=strategy,
+    )
+    LOGGER.info(
+        "[dev] LLM call (candidate %d) | task_id=%s | attempt=%d | strategy=%s | prompt_chars=%d",
+        candidate_idx, task_id, attempt_number, strategy, len(_cand_prompt),
+    )
+    _cand_llm_start = time.monotonic()
+    raw_output = call_llm(DEV_SYSTEM_PROMPT, _cand_prompt)
+    LOGGER.info(
+        "[dev] LLM done (candidate %d) | task_id=%s | elapsed=%.1fs | response_chars=%d",
+        candidate_idx, task_id, time.monotonic() - _cand_llm_start, len(raw_output),
     )
 
     # In exploit mode, compose with relevant skills
