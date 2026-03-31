@@ -1,0 +1,17 @@
+ORIGINAL TASK (failed QA after all retries):
+{task_json}
+
+QA FAILURE ANALYSIS:
+Error summary: {error_summary}
+Root cause: {root_cause}
+Fix suggestion: {fix_suggestion}
+
+PYTEST / TEST OUTPUT (excerpt):
+{qa_logs}
+
+Produce a revised task breakdown that directly addresses the failures above.
+Split the original task into 1–3 smaller, concrete sub-tasks if needed.
+Each sub-task must be independently implementable and testable.
+Preserve the original project_name, project_repo_path, and github_url in each sub-task.
+
+Output a JSON array of task objects only.
