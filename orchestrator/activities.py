@@ -990,7 +990,22 @@ def _build_dev_prompt(
 ) -> str:
     qa_feedback_text = "No QA feedback yet. Produce the initial implementation."
     if qa_feedback:
-        qa_feedback_text = json.dumps(qa_feedback, indent=2, ensure_ascii=True)
+        summary = qa_feedback.get("summary") or {}
+        if isinstance(summary, str):
+            try:
+                summary = json.loads(summary)
+            except Exception:
+                summary = {"error_summary": summary}
+        qa_feedback_text = "\n".join(filter(None, [
+            "=== QA FAILURE REPORT ===",
+            f"Status: {qa_feedback.get('status', 'fail')}",
+            f"Error summary: {summary.get('error_summary', '')}",
+            f"Root cause: {summary.get('root_cause', '')}",
+            f"Fix suggestion: {summary.get('fix_suggestion', '')}",
+            "",
+            "=== FULL TEST OUTPUT ===",
+            (qa_feedback.get("logs") or "")[:4000],
+        ]))
 
     error_history_text = ""
     if attempt_number > 1:
