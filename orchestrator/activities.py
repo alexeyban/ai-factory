@@ -3101,6 +3101,76 @@ async def policy_update_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @activity.defn
+async def rearchitect_failed_task_activity(task_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Re-think the implementation approach for a QA-failed task.
+
+    Called by the workflow when a task fails QA after all dev self-healing retries.
+    Uses the architect LLM with the full QA failure context to produce 1–3 revised
+    sub-tasks that address the specific root causes.
+
+    Input keys:
+        task        — original task dict that failed QA
+        qa_failure  — QA result dict: {status, logs, summary{error_summary, root_cause, fix_suggestion}}
+        _workflow_id — workflow ID for context file naming
+    """
+    start_time = time.time()
+    original_task = task_input.get("task", {})
+    qa_failure = task_input.get("qa_failure", {})
+    workflow_id = task_input.get("_workflow_id", "unknown")
+    task_id = original_task.get("task_id", "unknown")
+
+    LOGGER.info("[rearchitect] Re-architecting failed task %s", task_id)
+
+    summary = qa_failure.get("summary") or {}
+    if isinstance(summary, str):
+        try:
+            summary = json.loads(summary)
+        except Exception:
+            summary = {"error_summary": summary}
+
+    user_prompt = render_prompt(
+        REARCHITECT_USER_PROMPT,
+        task_json=json.dumps(original_task, indent=2, ensure_ascii=True),
+        error_summary=summary.get("error_summary", "")[:1000],
+        root_cause=summary.get("root_cause", "")[:1000],
+        fix_suggestion=summary.get("fix_suggestion", "")[:1000],
+        qa_logs=(qa_failure.get("logs") or "")[:4000],
+    )
+
+    try:
+        llm_response = call_llm(
+            system=REARCHITECT_SYSTEM_PROMPT,
+            user=user_prompt,
+            max_tokens=4096,
+        )
+    except Exception as exc:
+        LOGGER.warning("[rearchitect] LLM call failed for task %s: %s — falling back to original", task_id, exc)
+        llm_response = ""
+
+    revised_tasks = _ensure_task_list(llm_response) if llm_response else []
+    if not revised_tasks:
+        LOGGER.warning("[rearchitect] No revised tasks produced for %s — keeping original", task_id)
+        revised_tasks = [original_task]
+
+    project_context = {
+        k: original_task.get(k, "")
+        for k in ("project_name", "project_repo_path", "github_url", "project_description")
+    }
+    revised_tasks = _normalize_task_list(revised_tasks, project_context)
+
+    LOGGER.info("[rearchitect] Task %s → %d revised sub-task(s)", task_id, len(revised_tasks))
+
+    result = {
+        "original_task_id": task_id,
+        "status": "success",
+        "tasks": revised_tasks,
+        "project_name": original_task.get("project_name"),
+        "project_repo_path": original_task.get("project_repo_path"),
+    }
+    return _wrap_activity_result(workflow_id, f"rearchitect_{task_id}", result, start_time)
+
+
+@activity.defn
 async def skill_optimization_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """Run a skill optimization cycle: refactor + merge + prune.
 
