@@ -2989,6 +2989,19 @@ async def _execute_task_impl(task: Dict[str, Any]) -> Dict[str, Any]:
 
     continuation = None
     final_status = "success" if qa_result.get("status") == "success" else "fail"
+
+    # --- Project notes: record failure after all retries exhausted ---
+    if final_status == "fail":
+        _fail_summary = qa_result.get("summary") or {}
+        _fail_error = (_fail_summary.get("error_summary") or "") if isinstance(_fail_summary, dict) else ""
+        _fail_fix = (_fail_summary.get("fix_suggestion") or "") if isinstance(_fail_summary, dict) else ""
+        _note = f"{task_id}: {_task_title(task)} FAILED after {len(healing_history)} attempt(s)"
+        if _fail_error:
+            _note += f" — {_fail_error[:200]}"
+        if _fail_fix:
+            _note += f" | suggested fix: {_fail_fix[:150]}"
+        _append_project_note(repo_path, "Known Failure Patterns", _note)
+
     if _task_timed_out(activity_start_time):
         LOGGER.warning(
             "[process_task] Timed out | workflow=%s | task_id=%s", workflow_id, task_id
