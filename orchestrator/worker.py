@@ -17,6 +17,7 @@ from orchestrator.activities import (
     extract_skill_activity,
     policy_update_activity,
     skill_optimization_activity,
+    rearchitect_failed_task_activity,
     process_single_task,
     process_all_tasks,
     dev_task,
