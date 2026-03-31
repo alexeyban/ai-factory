@@ -1089,13 +1089,22 @@ def _generate_dev_artifact(
         ),
     )
 
-    raw_output = call_llm(
-        DEV_SYSTEM_PROMPT,
-        _build_dev_prompt(task, description, attempt_number, qa_feedback),
+    mode = "autofix" if qa_feedback else "initial"
+    dev_prompt = _build_dev_prompt(task, description, attempt_number, qa_feedback)
+    LOGGER.info(
+        "[dev] LLM call | task_id=%s | attempt=%d | mode=%s | prompt_chars=%d | branch=%s",
+        task_id, attempt_number, mode, len(dev_prompt), branch_name,
+    )
+    llm_start = time.monotonic()
+    raw_output = call_llm(DEV_SYSTEM_PROMPT, dev_prompt)
+    LOGGER.info(
+        "[dev] LLM done | task_id=%s | attempt=%d | response_chars=%d | elapsed=%.1fs",
+        task_id, attempt_number, len(raw_output), time.monotonic() - llm_start,
     )
 
     multi = _parse_multi_file_output(raw_output)
     if multi:
+        LOGGER.debug("[dev] Multi-file output detected | task_id=%s | files=%d", task_id, len(multi))
         written_paths = []
         repo_resolved = repo_path.resolve()
         for rel_path, content in multi:
@@ -1116,7 +1125,7 @@ def _generate_dev_artifact(
         file_path = _task_module_path(task, repo_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(code)
-        LOGGER.info("[dev] Code written to %s (%d bytes)", file_path, len(code))
+        LOGGER.info("[dev] Code written to %s (%d bytes, %d lines)", file_path, len(code), code.count("\n"))
 
     docs_dir = repo_path / "documents" / "pm"
     task_doc = _next_version_path(
@@ -1137,6 +1146,10 @@ def _generate_dev_artifact(
         if commit_sha
         else {"ok": False, "stderr": "nothing to push"}
     )
+    LOGGER.info(
+        "[dev] Committed | task_id=%s | commit=%s | push_ok=%s",
+        task_id, commit_sha or "none", push_result.get("ok"),
+    )
 
     return {
         "task_id": task_id,
@@ -1144,7 +1157,7 @@ def _generate_dev_artifact(
         "artifact": str(file_path),
         "code": code,
         "attempt": attempt_number,
-        "mode": "autofix" if qa_feedback else "initial",
+        "mode": mode,
         "branch": branch_name,
         "commit": commit_sha,
         "push": push_result,
