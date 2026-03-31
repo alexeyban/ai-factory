@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Factory — Start Project</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #1a1d2e;
+      border-bottom: 1px solid #2d3748;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; color: #a78bfa; }
+    header a { color: #64748b; font-size: 0.85rem; text-decoration: none; margin-left: auto; }
+    header a:hover { color: #a78bfa; }
+    main {
+      flex: 1;
+      max-width: 760px;
+      width: 100%;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+    .card {
+      background: #1a1d2e;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 1.25rem; color: #c4b5fd; }
+    .field { margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.4rem; }
+    input[type=text], input[type=url], textarea {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      padding: 0.6rem 0.8rem;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus { border-color: #7c3aed; }
+    textarea { resize: vertical; min-height: 140px; font-family: inherit; }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-bottom: 0.75rem;
+    }
+    .checkbox-row input[type=checkbox] { accent-color: #7c3aed; width: 15px; height: 15px; }
+    .btn {
+      display: inline-block;
+      background: #7c3aed;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.65rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #6d28d9; }
+    .alert {
+      border-radius: 7px;
+      padding: 0.85rem 1rem;
+      font-size: 0.88rem;
+      margin-bottom: 1.25rem;
+    }
+    .alert-error { background: #3b0c0c; border: 1px solid #ef4444; color: #fca5a5; }
+    .alert-warning { background: #2d2006; border: 1px solid #f59e0b; color: #fcd34d; }
+    .running-list { list-style: none; }
+    .running-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #1e2233;
+      font-size: 0.875rem;
+    }
+    .running-list li:last-child { border-bottom: none; }
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      background: #064e3b;
+      color: #6ee7b7;
+    }
+    .link { color: #a78bfa; text-decoration: none; font-size: 0.85rem; }
+    .link:hover { text-decoration: underline; }
+    .hint { font-size: 0.78rem; color: #64748b; margin-top: 0.3rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🏭 AI Factory</h1>
+    <a href="{{ temporal_web_url }}/namespaces/{{ temporal_namespace }}/workflows" target="_blank">
+      Open Temporal UI →
+    </a>
+  </header>
+
+  <main>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    {% if warning %}
+    <div class="alert alert-warning">{{ warning }}</div>
+    {% endif %}
+
+    <!-- Running workflows -->
+    {% if running_workflows %}
+    <div class="card">
+      <h2>Running Workflows</h2>
+      <ul class="running-list">
+        {% for wf in running_workflows %}
+        <li>
+          <span>{{ wf.id }}</span>
+          <span>
+            <span class="badge">running</span>
+            &nbsp;
+            <a class="link"
+               href="{{ temporal_web_url }}/namespaces/{{ temporal_namespace }}/workflows/{{ wf.id }}"
+               target="_blank">Monitor →</a>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- Start form -->
+    <div class="card">
+      <h2>Start New Project</h2>
+
+      <form method="POST" action="/start">
+
+        <div class="field">
+          <label for="project_name">Project name</label>
+          <input type="text" id="project_name" name="project_name" required
+                 placeholder="reversi-alpha-zero"
+                 value="{{ prefill.project_name if prefill else '' }}">
+          <div class="hint">Used as the directory name and workflow prefix.</div>
+        </div>
+
+        <div class="field">
+          <label for="github_url">GitHub repository URL</label>
+          <input type="url" id="github_url" name="github_url" required
+                 placeholder="https://github.com/owner/repo"
+                 value="{{ prefill.github_url if prefill else '' }}">
+        </div>
+
+        <div class="field">
+          <label for="description">Project description / brief</label>
+          <div class="checkbox-row" style="margin-bottom:0.6rem">
+            <input type="checkbox" id="fetch_readme" name="fetch_readme" value="true">
+            <label for="fetch_readme" style="margin:0;cursor:pointer">
+              Auto-fill from GitHub README (fetches README.md from the repository)
+            </label>
+          </div>
+          <textarea id="description" name="description"
+                    placeholder="Describe what the AI factory should build. Leave blank and check the box above to use the repo README.">{{ prefill.description if prefill else '' }}</textarea>
+          <div class="hint">The PM agent uses this as the full project specification.</div>
+        </div>
+
+        {% if warning %}
+        <div class="checkbox-row" style="margin-bottom:1rem">
+          <input type="checkbox" id="force_start" name="force_start" value="true">
+          <label for="force_start" style="margin:0;cursor:pointer;color:#fcd34d">
+            Force start — proceed despite running workflows (may cause rate-limit contention)
+          </label>
+        </div>
+        {% endif %}
+
+        <button type="submit" class="btn">Start Workflow →</button>
+      </form>
+    </div>
+
+    <!-- Recent workflows link -->
+    <p style="text-align:center;font-size:0.82rem;color:#475569">
+      <a class="link" href="/workflows" target="_blank">View all workflows (JSON)</a>
+      &nbsp;·&nbsp;
+      <a class="link" href="{{ temporal_web_url }}/namespaces/{{ temporal_namespace }}/workflows" target="_blank">
+        Temporal Web UI
+      </a>
+    </p>
+
+  </main>
+
+  <script>
+    // When "fetch README" is checked, clear and disable the textarea
+    const cb = document.getElementById('fetch_readme');
+    const ta = document.getElementById('description');
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        ta.placeholder = 'Will be fetched from README.md …';
+        ta.disabled = true;
+      } else {
+        ta.placeholder = 'Describe what the AI factory should build…';
+        ta.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
